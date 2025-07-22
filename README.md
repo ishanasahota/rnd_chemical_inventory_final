@@ -21,9 +21,30 @@ If you need to run 'weeklycriticalchemicalsfluidai.py' and 'reorderchemicalsflui
 depending on if you have a Windows or a Mac. 
 
 For Mac, go onto your terminal and type in 'crontab -e' (but with no apostrophes).
-then, once your inside, press 'i' to insert the following 2 lines
+then, once your inside, press 'i' to insert the following 2 lines. Change anaconda/bin/python3 to whatever you're using to run python (if you really need help just ask chat to change it for you by pasting in the crontab and telling it which server you use)
+
 0 9 * * 1 /opt/anaconda3/bin/python3 /Users/ishanasahota/Desktop/fluidAI/weeklycriticalchemicalsfluidai.py >> /Users/ishanasahota/Desktop/fluidAI/cronlog.txt 2>&1
 0 9 * * * /opt/anaconda3/bin/python3 /Users/ishanasahota/Desktop/fluidAI/reorderchemicalsfluidai.py >> /Users/ishanasahota/Desktop/fluidAI/cronlog.txt 2>&1
  change these to your specific path file where the code is located on your computer, BUT do not mess up the spacing, as the cron job will not run. Once the information is pasted, click esc, and then type ':wq' which will exit you from the crontab. To see if they properly pasted, check by typing 'crontab -l' into your terminal. if it displays what you see above, then it's been inputted correctly. Then check your Teams when 9 AM rolls around to see if it worked.
 
- For Windows, you have to set up task scheduler.
+ For Windows, you have to set up task scheduler. 
+Open Start.
+Search for Task Scheduler, and click the top result to open the app.
+Right-click the "Task Scheduler Library" branch and select the New Folder option.
+Type a name for the folder – for example, MyTasks. (This step isn't required, but it's recommended to keep your tasks separate from the system and apps tasks.)
+Click the OK button.
+Expand the "Task Scheduler Library" branch and select the MyTasks folder.
+Click the Action menu.
+Select the "Create Basic Task" option
+In the "Name" setting, type a  name for the task 
+Optional) In the "Description" setting, create a description for the task.
+Click the Next button.
+Select 'Weekly' if you're setting up the weekly reorders and 'daily' if you're setting up the reorderchemicals
+Click the Next button.
+Using the "Start" settings, specify when the task should run and the time (very important).
+Use the "Days" or "On" drop-down menu to specify the days that the task will run.
+In the "Program/script" setting, specify the path for the app. (or click browse and go find it)
+Click finish!
+
+
+With either crontab or task scheduler, the goal is to run the code daily/weekly so that the reorder updates will be up-to-date and accurate!
