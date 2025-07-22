@@ -17,4 +17,13 @@ to OneDrive.
 Never open the excel file off of your desktop, only download it from OneDrive to ensure you have the newest copy
 
 
+If you need to run 'weeklycriticalchemicalsfluidai.py' and 'reorderchemicalsfluidai.py', you need to set up either crontab or task scheduler,
+depending on if you have a Windows or a Mac. 
 
+For Mac, go onto your terminal and type in 'crontab -e' (but with no apostrophes).
+then, once your inside, press 'i' to insert the following 2 lines
+0 9 * * 1 /opt/anaconda3/bin/python3 /Users/ishanasahota/Desktop/fluidAI/weeklycriticalchemicalsfluidai.py >> /Users/ishanasahota/Desktop/fluidAI/cronlog.txt 2>&1
+0 9 * * * /opt/anaconda3/bin/python3 /Users/ishanasahota/Desktop/fluidAI/reorderchemicalsfluidai.py >> /Users/ishanasahota/Desktop/fluidAI/cronlog.txt 2>&1
+ change these to your specific path file where the code is located on your computer, BUT do not mess up the spacing, as the cron job will not run. Once the information is pasted, click esc, and then type ':wq' which will exit you from the crontab. To see if they properly pasted, check by typing 'crontab -l' into your terminal. if it displays what you see above, then it's been inputted correctly. Then check your Teams when 9 AM rolls around to see if it worked.
+
+ For Windows, you have to set up task scheduler.
