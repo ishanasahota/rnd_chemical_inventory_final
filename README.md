@@ -1,54 +1,99 @@
-In this repository is my work towards making R&D an easy-to-use inventory system. There are 4 pieces of code in here that do four different things. 2 of them, 'weeklycriticalchemicalsfluidai.py'
-and 'reorderchemicalsfluidai.py' are responsible for reorder updates that are sent to teams. 'runtotakeinventory.py' is self-explanitory and 'finalbarcodegeneration.py' is used to generate 
-barcodes. 
+This repository contains all the Python tools and automation required to maintain a clean, streamlined inventory system for R&D chemicals and fluids. The solution is centered around an Excel file called rnd_chemical_inventory.xlsx, and the codebase automates inventory updates, barcode generation, reorder notifications, and expired item cleanup.
 
-The process works like this. There is an excel file called 'rnd_chemical_inventory' where the fluid inventory is stored. The first sheet, InventoryData, is where, when 'runtotakeinventory.py'
-is run, the information is stored. 'ReorderUpdates' takes four columns of InventoryData and then adds two of it's own, Expiry Alerts and Quantity Alert. This sheet, ReorderUpdates, and those 
-two columns are what 'weeklycriticalchemicalsfluidai.py' and 'reorderchemicalsfluidai.py read and send Teams notifications on. When you run out of barcodes, there's 'finalbarcodegeneration.py'.
-Before running, look up the folder barcode_images with your F4 key (if you haven't run it before it won't exist) and clear it's contents BUT not the folder. This will make sure only the newly
-generated barcodes end up on the PDF and not reprints of old ones (Which will mess everything up). Then once you stick a barcode on, you can add information to the sheet. Go onto OneDrive and
-download to desktop Excel the most recent copy of rnd_chemical_inventory. Once that is loaded, make sure the 'runtotakeinventory.py' has the correct path at the top of the code to access the 
-excel file. That is the only thing you need to change. Then, making sure that the excel file is closed (and not minimized), run the code. There will be a pop-up that asks you to scan the 
-barcode, and do as it says. If it has been scanned before, it will prompt you to input how much you used. If it has never been scanned before, it will prompt you for the Chemical Name, 
-Lot Number, Nominal Amount, Manufacturer and Expiry Date. Input all of those, and it will save automatically to the excel file. Once you are done scanning, click 'yes' to exit scanning, 
-and if the window doesn't close, press command + option + esc to close the python tab. Then open the excel file, save it, and press 'Share' at the top and upload the new, updated copy back
-to OneDrive. 
-There is also a deletion.py, which delets expired or empty bottles after 30 days, giving you enough time to reorder!
-
-Never open the excel file off of your desktop, only download it from OneDrive to ensure you have the newest copy
+There are four primary scripts in this repository:
+runtotakeinventory.py
+Used to scan barcodes and update the InventoryData sheet in the Excel file.
+Prompts you for chemical details if the barcode is new, or usage amount if it's already in the system.
 
 
-If you need to run 'weeklycriticalchemicalsfluidai.py' and 'reorderchemicalsfluidai.py', you need to set up either crontab or task scheduler,
-depending on if you have a Windows or a Mac. 
+weeklycriticalchemicalsfluidai.py
+Sends automated Teams alerts every Monday at 9 AM for chemicals that are critically low or expired.
 
-For Mac, go onto your terminal and type in 'crontab -e' (but with no apostrophes).
-then, once your inside, press 'i' to insert the following 2 lines. Change anaconda/bin/python3 to whatever you're using to run python (if you really need help just ask chat to change it for you by pasting in the crontab and telling it which server you use)
 
+reorderchemicalsfluidai.py
+Sends daily alerts for any chemicals that need reordering or have upcoming expiry.
+
+
+finalbarcodegeneration.py
+Generates barcodes and creates a printable PDF.
+Outputs barcode images to the barcode_images folder.
+
+
+auto_delete_expired.py
+Automatically deletes any items in InventoryData that have either:
+Expired more than 30 days ago, or
+Have zero remaining quantity for more than 30 days.
+Moved deleted items to a DeletedItems sheet for record-keeping.
+
+**How It Works**
+The main Excel file, rnd_chemical_inventory.xlsx, lives in OneDrive and should always be downloaded fresh before use.
+The primary data lives in the InventoryData sheet.
+
+
+When runtotakeinventory.py is run:
+It scans or creates entries based on barcode input.
+If it's a new chemical, you’ll be prompted to enter:
+Chemical Name
+Lot Number
+Nominal Volume
+Manufacturer
+Expiry Date
+All updates are automatically saved to the Excel file.
+
+
+The ReorderUpdates sheet is formula-based, pulling data from InventoryData and calculating:
+Quantity Alert
+Expiry Alert
+These alerts are then picked up by the reorder scripts to notify teams.
+
+Barcode Generation Notes:
+Before running finalbarcodegeneration.py:
+Go to the barcode_images folder (press F4 in your Finder to locate it).
+Clear its contents (but do not delete the folder itself).
+This ensures the PDF contains only the newly generated barcodes.
+
+Deletion Logic
+This script performs automated cleanup of expired or depleted items:
+Runs daily (e.g., at 2 AM via crontab or Task Scheduler).
+Only deletes items 30+ days after expiry or depletion.
+Items are not deleted immediately so alerts still have time to notify teams.
+Deleted items are archived in a DeletedItems sheet with a timestamp.
+You do not need to run a separate deletion for ReorderUpdates — because that sheet is formula-based, any deletions in InventoryData automatically clear the corresponding alert rows.
+
+OneDrive and best Practices
+Never edit the Excel file directly on OneDrive.
+Instead, always:
+Download the most recent version to your desktop.
+Run your updates or scripts.
+Save and upload the updated version back to OneDrive.
+
+CRONTAB & DAILY SCRIPT INSTALLATION
+For Mac (via crontab)
+
+
+Open Terminal and run: crontab -e
+Press i to insert, then paste the following lines (edit file paths and Python interpreter as needed):
 0 9 * * 1 /opt/anaconda3/bin/python3 /Users/ishanasahota/Desktop/fluidAI/weeklycriticalchemicalsfluidai.py >> /Users/ishanasahota/Desktop/fluidAI/cronlog.txt 2>&1
 0 9 * * * /opt/anaconda3/bin/python3 /Users/ishanasahota/Desktop/fluidAI/reorderchemicalsfluidai.py >> /Users/ishanasahota/Desktop/fluidAI/cronlog.txt 2>&1
 0 2 * * * /opt/anaconda3/bin/python3 /Users/ishanasahota/Desktop/fluidAI/auto_delete_expired.py >> /Users/ishanasahota/Desktop/fluidAI/cronlog.txt 2>&1
- change these to your specific path file where the code is located on your computer, BUT do not mess up the spacing, as the cron job will not run. Once the information is pasted, click esc, and then type ':wq' which will exit you from the crontab. To see if they properly pasted, check by typing 'crontab -l' into your terminal. if it displays what you see above, then it's been inputted correctly. Then check your Teams when 9 AM rolls around to see if it worked.
-
- For Windows, you have to set up task scheduler. 
-Open Start.
-Search for Task Scheduler, and click the top result to open the app.
-Right-click the "Task Scheduler Library" branch and select the New Folder option.
-Type a name for the folder – for example, MyTasks. (This step isn't required, but it's recommended to keep your tasks separate from the system and apps tasks.)
-Click the OK button.
-Expand the "Task Scheduler Library" branch and select the MyTasks folder.
-Click the Action menu.
-Select the "Create Basic Task" option
-In the "Name" setting, type a  name for the task 
-Optional) In the "Description" setting, create a description for the task.
-Click the Next button.
-Select 'Weekly' if you're setting up the weekly reorders and 'daily' if you're setting up the reorderchemicals
-Click the Next button.
-Using the "Start" settings, specify when the task should run and the time (very important).
-Use the "Days" or "On" drop-down menu to specify the days that the task will run.
-In the "Program/script" setting, specify the path for the app. (or click browse and go find it)
-Click finish!
+Press Esc, then type :wq and hit Enter to save and exit.
+Verify setup with: crontab -l
+Check that your Teams receives alerts at the correct times.
 
 
-For whoever has the crontab alerts, at the end of each day, you need to redowload the newest copy of excel to your mac and then save it- this way the alerts and deletion will be accurate and based off of the most recent information. i know it's annoying, but put an alert in- python does all the hard part!!
+✅ For Windows (via Task Scheduler)
+Open Task Scheduler.
+Create a new folder (e.g., "MyTasks") to organize your scripts.
+Create new tasks with the following settings:
+Action: Start a program
+Program/script: Your Python executable path
+Add arguments: Full path to your script (e.g., reorderchemicalsfluidai.py)
+Schedule:
+Reorder script: Daily at 9 AM
+Weekly alerts: Weekly at 9 AM Monday
+Auto-delete: Daily at 2 AM
 
-With either crontab or task scheduler, the goal is to run the code daily/weekly so that the reorder updates will be up-to-date and accurate!
+**Tips for Daily Use**
+Ensure you have the latest copy of the Excel file downloaded each day.
+At the end of the day, upload the updated Excel file back to OneDrive to keep everything synced.
+Set calendar alerts for yourself until this becomes a habit.
