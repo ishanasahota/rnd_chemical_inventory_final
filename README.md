@@ -74,8 +74,14 @@ For Mac (via crontab)
 Open Terminal and run: crontab -e
 Press i to insert, then paste the following lines (edit file paths and Python interpreter as needed):
 0 9 * * 1 /opt/anaconda3/bin/python3 /Users/ishanasahota/Desktop/fluidAI/weeklycriticalchemicalsfluidai.py >> /Users/ishanasahota/Desktop/fluidAI/cronlog.txt 2>&1
+
+
 0 9 * * * /opt/anaconda3/bin/python3 /Users/ishanasahota/Desktop/fluidAI/reorderchemicalsfluidai.py >> /Users/ishanasahota/Desktop/fluidAI/cronlog.txt 2>&1
+
+
 0 2 * * * /opt/anaconda3/bin/python3 /Users/ishanasahota/Desktop/fluidAI/auto_delete_expired.py >> /Users/ishanasahota/Desktop/fluidAI/cronlog.txt 2>&1
+
+
 Press Esc, then type :wq and hit Enter to save and exit.
 Verify setup with: crontab -l
 Check that your Teams receives alerts at the correct times.
