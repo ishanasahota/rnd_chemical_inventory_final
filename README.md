@@ -87,7 +87,7 @@ Verify setup with: crontab -l
 Check that your Teams receives alerts at the correct times.
 
 
-✅ For Windows (via Task Scheduler)
+For Windows (via Task Scheduler)
 Open Task Scheduler.
 Create a new folder (e.g., "MyTasks") to organize your scripts.
 Create new tasks with the following settings:
