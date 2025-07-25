@@ -13,6 +13,7 @@ barcode, and do as it says. If it has been scanned before, it will prompt you to
 Lot Number, Nominal Amount, Manufacturer and Expiry Date. Input all of those, and it will save automatically to the excel file. Once you are done scanning, click 'yes' to exit scanning, 
 and if the window doesn't close, press command + option + esc to close the python tab. Then open the excel file, save it, and press 'Share' at the top and upload the new, updated copy back
 to OneDrive. 
+There is also a deletion.py, which delets expired or empty bottles after 30 days, giving you enough time to reorder!
 
 Never open the excel file off of your desktop, only download it from OneDrive to ensure you have the newest copy
 
@@ -25,6 +26,7 @@ then, once your inside, press 'i' to insert the following 2 lines. Change anacon
 
 0 9 * * 1 /opt/anaconda3/bin/python3 /Users/ishanasahota/Desktop/fluidAI/weeklycriticalchemicalsfluidai.py >> /Users/ishanasahota/Desktop/fluidAI/cronlog.txt 2>&1
 0 9 * * * /opt/anaconda3/bin/python3 /Users/ishanasahota/Desktop/fluidAI/reorderchemicalsfluidai.py >> /Users/ishanasahota/Desktop/fluidAI/cronlog.txt 2>&1
+0 2 * * * /opt/anaconda3/bin/python3 /Users/ishanasahota/Desktop/fluidAI/auto_delete_expired.py >> /Users/ishanasahota/Desktop/fluidAI/cronlog.txt 2>&1
  change these to your specific path file where the code is located on your computer, BUT do not mess up the spacing, as the cron job will not run. Once the information is pasted, click esc, and then type ':wq' which will exit you from the crontab. To see if they properly pasted, check by typing 'crontab -l' into your terminal. if it displays what you see above, then it's been inputted correctly. Then check your Teams when 9 AM rolls around to see if it worked.
 
  For Windows, you have to set up task scheduler. 
@@ -46,5 +48,7 @@ Use the "Days" or "On" drop-down menu to specify the days that the task will run
 In the "Program/script" setting, specify the path for the app. (or click browse and go find it)
 Click finish!
 
+
+For whoever has the crontab alerts, at the end of each day, you need to redowload the newest copy of excel to your mac and then save it- this way the alerts and deletion will be accurate and based off of the most recent information. i know it's annoying, but put an alert in- python does all the hard part!!
 
 With either crontab or task scheduler, the goal is to run the code daily/weekly so that the reorder updates will be up-to-date and accurate!
