@@ -1,7 +1,7 @@
 This repository contains all the Python tools and automation required to maintain a clean, streamlined inventory system for R&D chemicals and fluids. The solution is centered around an Excel file called rnd_chemical_inventory.xlsx, and the codebase automates inventory updates, barcode generation, reorder notifications, and expired item cleanup.
 
 There are five primary scripts in this repository:
-take_inventory.py
+  take_inventory.py
 
 -> Used to scan barcodes and update the InventoryData sheet in the Excel file.
 
@@ -9,23 +9,23 @@ take_inventory.py
 ->Prompts you for chemical details if the barcode is new, or usage amount if it's already in the system.
 
 
-weeklycriticalchemicalsfluidai.py
+  weeklycriticalchemicalsfluidai.py
 
 ->Sends automated Teams alerts every Monday at 9 AM for chemicals that are critically low or expired.
 
 
-reorderchemicalsfluidai.py
+  reorderchemicalsfluidai.py
 ->Sends daily alerts for any chemicals that need reordering or have upcoming expiry.
 
 
-barcodegeneration.py
+  barcodegeneration.py
 
 ->Generates barcodes and creates a printable PDF.
 
 ->Outputs barcode images to the barcode_images folder.
 
 
-deletion_crontab.py
+  deletion_crontab.py
 
 ->Automatically deletes any items in InventoryData that have either:
 ->Expired more than 30 days ago, or
