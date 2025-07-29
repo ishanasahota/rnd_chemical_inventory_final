@@ -1,9 +1,9 @@
-from openpyxl import load_workbook 
+from openpyxl import load_workbook
 import pymsteams
 
 # Load workbook and sheet
-wb = load_workbook('/Users/ishanasahota/Desktop/fluidAI/attempt2.xlsx', data_only=True)
-ws = wb['Sheet1']
+wb = load_workbook('/Users/ishanasahota/Desktop/fluidAI/rnd_chemical_inventory.xlsx', data_only=True)
+ws = wb['ReorderUpdates']
 
 order_more_items = []
 
