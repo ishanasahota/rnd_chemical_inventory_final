@@ -29,7 +29,7 @@ try:
             try:
                 critical_summary[name] += float(remaining_qty)
             except (TypeError, ValueError):
-                print(f"⚠️ Skipped '{name}' due to invalid Remaining Quantity: '{remaining_qty}'")
+                print(f"⚠Skipped '{name}' due to invalid Remaining Quantity: '{remaining_qty}'")
                 continue
     
     # Format critical fluids message
@@ -39,7 +39,7 @@ try:
         main_line = f"- {display_name} ➜ {total_amount:.2f} L"
         critical_list_lines.append(main_line)
         if total_amount < 6:
-            warning_line = "  - ⚠️ Warning: Almost at 1 bottle. Please reorder immediately."
+            warning_line = "  -Warning: Almost at 1 bottle. Please reorder immediately."
             critical_list_lines.append(warning_line)
     
     critical_list_str = "\n".join(critical_list_lines)
