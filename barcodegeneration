@@ -1,11 +1,19 @@
 import qrcode
 import os
 import uuid
+import shutil
 from PIL import Image, ImageDraw, ImageFont
 from openpyxl import load_workbook, Workbook
 
-EXCEL_FILE = "attempt2.xlsx"
+EXCEL_FILE = "rnd_chemical_inventory.xlsx"
 GENERATED_SHEET = "GeneratedBarcodes"
+
+# Auto-clear barcode_images folder to prevent duplicates
+output_folder = "barcode_images"
+if os.path.exists(output_folder):
+    shutil.rmtree(output_folder)  # Remove entire folder
+os.makedirs(output_folder, exist_ok=True)  # Recreate it empty
+
 
 # Ensure Excel file and GeneratedBarcodes sheet exist on the computer
 if not os.path.exists(EXCEL_FILE):
@@ -29,8 +37,7 @@ output_folder = "barcode_images"
 os.makedirs(output_folder, exist_ok=True)
 
 
-# Generate 105 unique barcodes! (i think it fits on a page). also before you generate more,
-#clear the contents of the barcode_images folder to make sure there's no repeat barcodes
+# Generate 105 unique barcodes! (i think it fits on a page).
 new_ids = []
 for _ in range(105):
     while True:
