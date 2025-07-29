@@ -6,10 +6,10 @@ from openpyxl import load_workbook
 from openpyxl.utils.datetime import from_excel
 
 # Configuration
-EXCEL_FILE = "rnd_chemical_inventory.xlsx"  # Updated to match your barcode script
+EXCEL_FILE = "rnd_chemical_inventory.xlsx"
 INVENTORY_SHEET = "InventoryData"
 DELETED_SHEET = "DeletedItems"
-REORDER_SHEET = "ReorderUpdates"  # Added for consistency
+REORDER_SHEET = "ReorderUpdates"
 DAYS_AFTER_EXPIRY = 30
 
 def log_message(message, is_error=False):
