@@ -4,34 +4,34 @@ This repository contains all the Python tools and automation required to maintai
 There are five primary scripts in this repository:
 ### **take_inventory.py**
 
--> Used to scan barcodes and update the InventoryData sheet in the Excel file.
+a. Used to scan barcodes and update the InventoryData sheet in the Excel file.
 
 
--> Prompts you for chemical details if the barcode is new, or usage amount if it's already in the system.
+b. Prompts you for chemical details if the barcode is new, or usage amount if it's already in the system.
 
 
 ### **weeklycriticalchemicalsfluidai.py**
 
-->Sends automated Teams alerts every Monday at 9 AM for chemicals that are critically low or expired.
+a. Sends automated Teams alerts every Monday at 9 AM for chemicals that are critically low or expired.
 
 
 ### **reorderchemicalsfluidai.py**
-->Sends daily alerts for any chemicals that need reordering or have upcoming expiry.
+a. Sends daily alerts for any chemicals that need reordering or have upcoming expiry.
 
 
 ### **barcodegeneration.py**
 
-->Generates barcodes and creates a printable PDF.
+a. Generates barcodes and creates a printable PDF.
 
-->Outputs barcode images to the barcode_images folder.
+b. Outputs barcode images to the barcode_images folder.
 
 
 ### **deletion_crontab.py**
 
-->Automatically deletes any items in InventoryData that have either:
-->Expired more than 30 days ago, or
-->Have zero remaining quantity for more than 30 days.
-->Moved deleted items to a DeletedItems sheet for record-keeping.
+a. Automatically deletes any items in InventoryData that have either:
+b. Expired more than 30 days ago, or
+c. Have zero remaining quantity for more than 30 days.
+d. Moved deleted items to a DeletedItems sheet for record-keeping.
 
 
 # How it Works
@@ -41,14 +41,14 @@ The primary data lives in the InventoryData sheet.
 ## **IF YOU ARE TAKING INVENTORY:**
 
 ### When runtotakeinventory.py is run:
-It scans or creates entries based on barcode input.
-If it's a new chemical, you’ll be prompted to enter:
-Chemical Name
-Lot Number
-Nominal Volume
-Manufacturer
-Expiry Date
-All updates are automatically saved to the Excel file. After your finished, open the excel file and command + S the excel worksheet InventoryData and in the top right, where it says share, press that and upload it back to OneDive, therefore keeping the excel sheet as updated as possible
+* It scans or creates entries based on barcode input.
+* If it's a new chemical, you’ll be prompted to enter:
+* Chemical Name
+* Lot Number
+* Nominal Volume
+* Manufacturer
+* Expiry Date
+* All updates are automatically saved to the Excel file. After your finished, open the excel file and command + S the excel worksheet InventoryData and in the top right, where it says share, press that and upload it back to OneDive, therefore keeping the excel sheet as updated as possible
 
 
 ### The ReorderUpdates sheet is formula-based, pulling data from InventoryData and calculating:
