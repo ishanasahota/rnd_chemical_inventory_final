@@ -3,10 +3,10 @@ This repository contains all the Python tools and automation required to maintai
 There are five primary scripts in this repository:
   take_inventory.py
 
-&emsp:Used to scan barcodes and update the InventoryData sheet in the Excel file.
+-> Used to scan barcodes and update the InventoryData sheet in the Excel file.
 
 
-->Prompts you for chemical details if the barcode is new, or usage amount if it's already in the system.
+-> Prompts you for chemical details if the barcode is new, or usage amount if it's already in the system.
 
 
   weeklycriticalchemicalsfluidai.py
