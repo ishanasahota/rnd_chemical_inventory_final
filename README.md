@@ -1,3 +1,4 @@
+## **Inventory Scripts**
 This repository contains all the Python tools and automation required to maintain a clean, streamlined inventory system for R&D chemicals and fluids. The solution is centered around an Excel file called rnd_chemical_inventory.xlsx, and the codebase automates inventory updates, barcode generation, reorder notifications, and expired item cleanup.
 
 There are five primary scripts in this repository:
@@ -14,18 +15,18 @@ There are five primary scripts in this repository:
 ->Sends automated Teams alerts every Monday at 9 AM for chemicals that are critically low or expired.
 
 
-  reorderchemicalsfluidai.py
+### **reorderchemicalsfluidai.py**
 ->Sends daily alerts for any chemicals that need reordering or have upcoming expiry.
 
 
-  barcodegeneration.py
+### **barcodegeneration.py**
 
 ->Generates barcodes and creates a printable PDF.
 
 ->Outputs barcode images to the barcode_images folder.
 
 
-  deletion_crontab.py
+### **deletion_crontab.py**
 
 ->Automatically deletes any items in InventoryData that have either:
 ->Expired more than 30 days ago, or
@@ -37,9 +38,9 @@ There are five primary scripts in this repository:
 The main Excel file, rnd_chemical_inventory.xlsx, lives in OneDrive and should always be downloaded fresh to excel on Mac before use.
 The primary data lives in the InventoryData sheet.
 
-**IF YOU ARE TAKING INVENTORY:**
+## **IF YOU ARE TAKING INVENTORY:**
 
-When runtotakeinventory.py is run:
+### When runtotakeinventory.py is run:
 It scans or creates entries based on barcode input.
 If it's a new chemical, you’ll be prompted to enter:
 Chemical Name
@@ -50,7 +51,7 @@ Expiry Date
 All updates are automatically saved to the Excel file. After your finished, open the excel file and command + S the excel worksheet InventoryData and in the top right, where it says share, press that and upload it back to OneDive, therefore keeping the excel sheet as updated as possible
 
 
-The ReorderUpdates sheet is formula-based, pulling data from InventoryData and calculating:
+### The ReorderUpdates sheet is formula-based, pulling data from InventoryData and calculating:
 Quantity Alert
 Expiry Alert
 These alerts are then picked up by the reorder and weeklyalerts scripts to notify teams.
