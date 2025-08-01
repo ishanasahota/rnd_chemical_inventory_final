@@ -56,13 +56,25 @@ Expiry Alert
 These alerts are then picked up by the reorder and weeklyalerts scripts to notify teams.
 In order for this to work accurately, the person who has the crontab running the 3 scripts must download the newest version of the excel file from OneDrive everyday. (I couldn't find a better solution, but if any of the devs or actual coders have any suggestions for this, please fix this)
 
-deletion_crontab Logic
+**deletion_crontab Logic**
+
+
 This script performs automated cleanup of expired or depleted items:
+
+
 Runs daily (e.g., at 2 AM via crontab or Task Scheduler).
+
+
 Only deletes items 30+ days after expiry or emptiness, which means it will still send alerts from when it's originally expired, giving us enough time to reorder, and then after a month, is deleted from the sheet and moved to DeletedItems (for reference).
+
+
 Deleted items are archived in a DeletedItems sheet with a timestamp.
+
+
 You do not need to run a separate deletion for ReorderUpdates — because that sheet is formula-based, any deletions in InventoryData automatically clear the corresponding alert rows.
-as many times as you see necessary during the month, upload it twice a day (download it once, possibly at night, to have the code run, and the next morning, upload it to make sure all the deleted items have been removed), press share, and share the excel doc, now free of any deleted items, back to onedrive. the 2- uploads don't have to be as daily as the nightly download, because if you download it once, the deletion code will still remove the items that are expired and past 30 days again and again, meaning your alerts will still be accurate, but for the convenience of everyone else, it won't be displayed. So a few times a month, upload back the cleaned copy!
+
+
+**NOTE**:   As many times as you see necessary during the month, upload it twice a day (download it once, possibly at night, to have the code run, and the next morning, upload it to make sure all the deleted items have been removed), press share, and share the excel doc, now free of any deleted items, back to onedrive. the 2- uploads don't have to be as daily as the nightly download, because if you download it once, the deletion code will still remove the items that are expired and past 30 days again and again, meaning your alerts will still be accurate, but for the convenience of everyone else, it won't be displayed. So a few times a month, upload back the cleaned copy!
 
 
 OneDrive and best Practices
