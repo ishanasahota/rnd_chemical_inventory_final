@@ -62,6 +62,8 @@ Runs daily (e.g., at 2 AM via crontab or Task Scheduler).
 Only deletes items 30+ days after expiry or emptiness, which means it will still send alerts from when it's originally expired, giving us enough time to reorder, and then after a month, is deleted from the sheet and moved to DeletedItems (for reference).
 Deleted items are archived in a DeletedItems sheet with a timestamp.
 You do not need to run a separate deletion for ReorderUpdates — because that sheet is formula-based, any deletions in InventoryData automatically clear the corresponding alert rows.
+as many times as you see necessary during the month, upload it twice a day (download it once, possibly at night, to have the code run, and the next morning, upload it to make sure all the deleted items have been removed), press share, and share the excel doc, now free of any deleted items, back to onedrive. the 2- uploads don't have to be as daily as the nightly download, because if you download it once, the deletion code will still remove the items that are expired and past 30 days again and again, meaning your alerts will still be accurate, but for the convenience of everyone else, it won't be displayed. So a few times a month, upload back the cleaned copy!
+
 
 OneDrive and best Practices
 Never edit the Excel file directly on OneDrive.
@@ -76,13 +78,13 @@ For Mac (via crontab)
 
 Open Terminal and run: crontab -e
 Press i to insert, then paste the following lines (edit file paths and Python interpreter as needed):
-0 9 * * 1 /opt/anaconda3/bin/python3 /Users/ishanasahota/Desktop/fluidAI/weeklycriticalchemicalsfluidai.py >> /Users/ishanasahota/Desktop/fluidAI/cronlog.txt 2>&1
+2 3 * * 1 /opt/anaconda3/bin/python3 /Users/ishanasahota/Desktop/fluidAI/weeklycriticalchemicalsfluidai.py >> /Users/ishanasahota/Desktop/fluidAI/cronlog.txt 2>&1
 
 
-0 9 * * * /opt/anaconda3/bin/python3 /Users/ishanasahota/Desktop/fluidAI/reorderchemicalsfluidai.py >> /Users/ishanasahota/Desktop/fluidAI/cronlog.txt 2>&1
+2 3 * * * /opt/anaconda3/bin/python3 /Users/ishanasahota/Desktop/fluidAI/reorderchemicalsfluidai.py >> /Users/ishanasahota/Desktop/fluidAI/cronlog.txt 2>&1
 
 
-0 9 * * * /opt/anaconda3/bin/python3 /Users/ishanasahota/Desktop/fluidAI/deletion_crontab.py >> /Users/ishanasahota/Desktop/fluidAI/cronlog.txt 2>&1
+2 2 * * * /opt/anaconda3/bin/python3 /Users/ishanasahota/Desktop/fluidAI/deletion_crontab.py >> /Users/ishanasahota/Desktop/fluidAI/cronlog.txt 2>&1
 
 
 Press Esc, then type :wq and hit Enter to save and exit.
