@@ -57,6 +57,18 @@ The primary data lives in the InventoryData sheet.
 * These alerts are then picked up by the reorder and weeklyalerts scripts to notify teams.
 * In order for this to work accurately, the person who has the crontab running the 3 scripts must download the newest version of the excel file from OneDrive everyday. (I couldn't find a better solution, but if any of the devs or actual coders have any suggestions for this, please fix this)
 
+## If for some reason, the ReorderUpdate logic isn't updating with the InventoryData sheet and **if you're experiencing trouble with the alerts**
+* Here are the formulas to put into the first cell of the tables!
+* Then, after the first is filled, pull the select down to select the whole column to fill it in all the way to the bottom. Repeat until column F!
+* For A2 (Chemical Name): =IF(InventoryData!B2="", "", InventoryData!B2)
+* For B2 (Bottle Nominal Volume (L)): =IF(InventoryData!D2="", "", InventoryData!D2)
+* For C2 (Remaining Quantity): =IF(InventoryData!E2="", "", InventoryData!E2)
+* For D2 (Expiry Date): =IF(InventoryData!G2="", "", InventoryData!G2)
+* For E2 (Expiry Alert): =IFS(ReorderUpdates!D2="Not Written", "Unknown",(ReorderUpdates!D2-TODAY())<0,"Expired",(ReorderUpdates!D2-TODAY())<46,"Order More",(ReorderUpdates!D2-TODAY())>=46,"Sufficient time")
+* For F2 (Quantity Alert): =CLEAN(IFS(ReorderUpdates!C2>=(ReorderUpdates!B2*0.2),"Sufficient Amount",ReorderUpdates!C2<(ReorderUpdates!B2*0.2),"Order More"))
+
+
+
 # **deletion_crontab Logic**
 
 * This script performs automated cleanup of expired or depleted items:
