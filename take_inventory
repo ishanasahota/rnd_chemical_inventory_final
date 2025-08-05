@@ -91,14 +91,13 @@ def update_inventory(barcode_id):
                 except (ValueError, TypeError):
                     current_qty = 0
                     
-                used = simpledialog.askfloat("Usage", 
-                    f"Barcode: {barcode_id}\nHow much did you use?\nCurrent quantity: {current_qty} L")
+                remaining = simpledialog.askfloat("Usage Update", 
+                    f"Barcode: {barcode_id}\nHow much is left in the bottle?\nCurrent quantity: {current_qty} L")
                 
-                if used is not None and used >= 0:
-                    new_qty = max(0, current_qty - used)
-                    row[qty_col].value = new_qty
+                if remaining is not None and remaining >= 0:
+                    row[qty_col].value = remaining
                     wb.save(EXCEL_FILE)
-                    messagebox.showinfo("Updated", f"Updated quantity to {new_qty} L")
+                    messagebox.showinfo("Updated", f"Updated remaining quantity to {remaining} L")
                 return
         
         # Barcode not found, add new entry
