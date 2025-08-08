@@ -39,7 +39,7 @@ try:
         main_line = f"- {display_name} ➜ {total_amount:.2f} L"
         critical_list_lines.append(main_line)
         if total_amount < 6:
-            warning_line = "  -Warning: Almost at 1 bottle. Please reorder immediately."
+            warning_line = "  - Warning: Almost at 1 bottle. Please reorder immediately."
             critical_list_lines.append(warning_line)
     
     critical_list_str = "\n".join(critical_list_lines)
@@ -74,7 +74,26 @@ try:
     )
     msg_expired.send()
     
-    print(f"Weekly alerts sent successfully. Found {len(critical_summary)} critical fluids and {len(expired_items)} expired items.")
+    # === PART 3: Empty Chemicals ===
+    empty_items = []
+    
+    for row in ws_reorder.iter_rows(min_row=2, values_only=True):
+        name = str(row[0] or "").strip()  # Column A: Chemical Name
+        empty_status = row[5]  # Column F: Empty Status
+        
+        if str(empty_status).strip() == "Empty":
+            empty_items.append(name)
+    
+    empty_list_str = "\n".join(f"- {name}" for name in empty_items)
+    
+    msg_empty = pymsteams.connectorcard("https://nervtechnology2.webhook.office.com/webhookb2/9b48b976-ff78-47d9-84af-0c86adb460bd@c943a20e-cde2-4f23-b31e-66242a699eb2/IncomingWebhook/2efe91b202c844cd9e3ad8f664443bb3/756d53aa-a382-47d3-9d8c-2d22fa02b8a3/V24Osd4C7KfMwor8lyRXSbBRdZcuzt6wgDMRlLNuh9QtE1")
+    msg_empty.text(
+        "**Weekly Empty Chemical Alert**\n\n"
+        f"The following fluids are marked as **Empty**:\n\n{empty_list_str or 'No empty items found.'}"
+    )
+    msg_empty.send()
+    
+    print(f"Weekly alerts sent successfully. Found {len(critical_summary)} critical fluids, {len(expired_items)} expired items, and {len(empty_items)} empty items.")
 
 except Exception as e:
     print(f"Error sending weekly alerts: {e}")
