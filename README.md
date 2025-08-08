@@ -65,7 +65,7 @@ The primary data lives in the InventoryData sheet.
 * For C2 (Remaining Quantity): =IF(InventoryData!E2="", "", InventoryData!E2)
 * For D2 (Expiry Date): =IF(InventoryData!G2="", "", InventoryData!G2)
 * For E2 (Expiry Alert): =IFS(ReorderUpdates!D2="Not Written", "Unknown",(ReorderUpdates!D2-TODAY())<0,"Expired",(ReorderUpdates!D2-TODAY())<46,"Order More",(ReorderUpdates!D2-TODAY())>=46,"Sufficient time")
-* For F2 (Quantity Alert): =CLEAN(IFS(ReorderUpdates!C2>=(ReorderUpdates!B2*0.2),"Sufficient Amount",ReorderUpdates!C2<(ReorderUpdates!B2*0.2),"Order More"))
+* For F2 (Quantity Alert): =CLEAN(IFS(ReorderUpdates!C112>=(ReorderUpdates!B112*0.2),"Sufficient Amount",ReorderUpdates!C112<(ReorderUpdates!B112*0.2)<0,"Order More",ReorderUpdates!C112=0,"Empty"))
 
 
 
