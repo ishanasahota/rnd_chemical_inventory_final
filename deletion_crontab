@@ -1,286 +1,151 @@
-#!/usr/bin/env python3
-import os
-import sys
-from datetime import datetime, timedelta
+import tkinter as tk
+from tkinter import messagebox
 from openpyxl import load_workbook
-from openpyxl.utils.datetime import from_excel
+import os
+from datetime import datetime
 
-# Configuration
-EXCEL_FILE = "rnd_chemical_inventory.xlsx"
-INVENTORY_SHEET = "InventoryData"
-DELETED_SHEET = "DeletedItems"
-REORDER_SHEET = "ReorderUpdates"
-DAYS_AFTER_EXPIRY = 30
+EXCEL_FILE = "/Users/ishanasahota/Desktop/fluidAI/rnd_inventory_data_2.xlsx"
+ORDER_TRACKING_SHEET = "OrderTracking"
+DELETED_ITEMS_SHEET = "DeletedItems"
 
-def log_message(message, is_error=False):
-    """Log messages with timestamp for cron job visibility"""
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    log_msg = f"[{timestamp}] {message}"
-    
-    if is_error:
-        print(log_msg, file=sys.stderr)
-    else:
-        print(log_msg)
 
-def correct_common_typos(date_str):
-    """Fix common typos in date strings"""
-    corrections = {
-        "septemeber": "september",
-        "febuary": "february",
-        "janurary": "january",
-        "decemeber": "december",
-        "ocotber": "october",
-        "novemeber": "november",
-    }
-    
-    if not isinstance(date_str, str):
-        return str(date_str)
-        
-    lowered = date_str.lower()
-    for typo, correct in corrections.items():
-        if typo in lowered:
-            # Preserve original case
-            original_case = date_str
-            for i, char in enumerate(date_str):
-                if i < len(typo) and char.lower() == typo[i]:
-                    continue
-                else:
-                    break
-            # Simple replacement preserving case
-            lowered = lowered.replace(typo, correct)
-            break
-    
-    return lowered
-
-def parse_date(date_input):
-    """Parse date from various formats including datetime, strings, Excel serials."""
-    if not date_input:
-        return None
-
-    # Already datetime?
-    if isinstance(date_input, datetime):
-        return date_input
-
-    # Excel serials
-    try:
-        if isinstance(date_input, (int, float)):
-            if 1 <= date_input <= 2958465:  # Valid Excel date range
-                return from_excel(date_input)
-            else:
-                return None
-    except Exception as e:
-        log_message(f"Warning: Error parsing Excel date {date_input}: {e}")
-        return None
-
-    # Handle string-based dates
-    try:
-        date_str = str(date_input).strip()
-
-        # Skip invalid/empty dates
-        if date_str.lower() in {"n/a", "n?a", "na", "", "#############", "none", "null"}:
-            return None
-
-        date_str = correct_common_typos(date_str)
-
-        # Try different date formats
-        date_formats = [
-            "%Y-%m-%d %H:%M:%S",
-            "%Y-%m-%d",
-            "%m/%d/%Y",
-            "%m-%d-%Y",
-            "%d/%m/%Y",
-            "%B %d, %Y",
-            "%b %d, %Y",
-            "%B %Y",
-            "%b %Y",
-            "%Y-%m",
-            "%m/%Y",
-        ]
-
-        for fmt in date_formats:
-            try:
-                parsed_date = datetime.strptime(date_str, fmt)
-                # If only month/year provided, assume end of month
-                if fmt in ["%B %Y", "%b %Y", "%Y-%m", "%m/%Y"]:
-                    # Move to last day of month
-                    if parsed_date.month == 12:
-                        parsed_date = parsed_date.replace(year=parsed_date.year + 1, month=1, day=1) - timedelta(days=1)
-                    else:
-                        parsed_date = parsed_date.replace(month=parsed_date.month + 1, day=1) - timedelta(days=1)
-                
-                return parsed_date
-            except ValueError:
-                continue
-
-        log_message(f"Warning: Could not parse date '{date_str}', skipping this item")
-        return None
-
-    except Exception as e:
-        log_message(f"Error parsing date '{date_input}': {e}", is_error=True)
-        return None
-
-def should_delete_item(row, headers, cutoff_date):
-    """Check if an item should be deleted based on expiry date and quantity"""
-    
-    # Check remaining quantity first (if 0 or less, delete regardless of expiry)
-    qty_col = headers.get("Remaining Quantity")
-    if qty_col is not None and qty_col < len(row):
-        try:
-            remaining_qty = float(row[qty_col].value or 0)
-            if remaining_qty <= 0:
-                return True, f"Empty (quantity: {remaining_qty})"
-        except (ValueError, TypeError):
-            # If we can't parse quantity, assume it's not empty
-            pass
-    
-    # Check expiry date (only delete if expired for more than DAYS_AFTER_EXPIRY)
-    expiry_col = headers.get("Expiry Date")
-    if expiry_col is not None and expiry_col < len(row):
-        expiry_date = parse_date(row[expiry_col].value)
-        if expiry_date and expiry_date < cutoff_date:
-            days_expired = (datetime.now() - expiry_date).days
-            return True, f"Expired {days_expired} days ago"
-    
-    return False, ""
-
-def remove_from_reorder_sheet(wb, inventory_row, inventory_headers):
-    """Remove corresponding row from ReorderUpdates sheet if it exists"""
-    if REORDER_SHEET not in wb.sheetnames:
-        return 0
-    
-    reorder_ws = wb[REORDER_SHEET]
-    reorder_headers = {cell.value: idx for idx, cell in enumerate(reorder_ws[1]) if cell.value}
-    
-    # Get identifying information from inventory row
-    search_columns = ["Chemical Name", "Lot Number"]
-    inventory_values = {}
-    
-    for col_name in search_columns:
-        col_idx = inventory_headers.get(col_name)
-        if col_idx is not None and col_idx < len(inventory_row):
-            inventory_values[col_name] = inventory_row[col_idx].value
-    
-    # Find and remove matching rows in ReorderUpdates
-    rows_to_delete = []
-    for row_idx, reorder_row in enumerate(reorder_ws.iter_rows(min_row=2), start=2):
-        match = True
-        for col_name in search_columns:
-            reorder_col_idx = reorder_headers.get(col_name)
-            if reorder_col_idx is not None and reorder_col_idx < len(reorder_row):
-                if reorder_row[reorder_col_idx].value != inventory_values.get(col_name):
-                    match = False
-                    break
-        
-        if match:
-            rows_to_delete.append(row_idx)
-    
-    # Delete matching rows (in reverse order)
-    for row_idx in reversed(rows_to_delete):
-        reorder_ws.delete_rows(row_idx)
-    
-    return len(rows_to_delete)
-
-def auto_delete_expired_empty():
-    """Main function to auto-delete expired/empty items"""
-    
+def cleanup_expired_orders():
+    """Move expired order tracking entries to DeletedItems sheet"""
     try:
         if not os.path.exists(EXCEL_FILE):
-            log_message(f"Excel file '{EXCEL_FILE}' not found!", is_error=True)
+            messagebox.showerror("Error", f"Inventory file {EXCEL_FILE} not found")
             return False
-        
-        # Load workbook
-        log_message(f"Loading workbook: {EXCEL_FILE}")
+
         wb = load_workbook(EXCEL_FILE)
-        
-        # Check if required sheets exist
-        if INVENTORY_SHEET not in wb.sheetnames:
-            log_message(f"Sheet '{INVENTORY_SHEET}' not found!", is_error=True)
+
+        # Check if OrderTracking sheet exists
+        if ORDER_TRACKING_SHEET not in wb.sheetnames:
+            messagebox.showinfo("No Action", f"No {ORDER_TRACKING_SHEET} sheet found")
             return False
-        
+
+        order_ws = wb[ORDER_TRACKING_SHEET]
+
         # Create DeletedItems sheet if it doesn't exist
-        if DELETED_SHEET not in wb.sheetnames:
-            log_message(f"Creating new '{DELETED_SHEET}' sheet")
-            deleted_ws = wb.create_sheet(DELETED_SHEET)
-            # Copy headers from InventoryData
-            inventory_ws = wb[INVENTORY_SHEET]
-            headers_row = [cell.value for cell in inventory_ws[1]]
-            headers_row.extend(["Deletion Date", "Deletion Reason"])  # Add metadata
-            deleted_ws.append(headers_row)
+        if DELETED_ITEMS_SHEET not in wb.sheetnames:
+            deleted_ws = wb.create_sheet(DELETED_ITEMS_SHEET)
+            # Add headers to match OrderTracking + deletion date
+            deleted_ws.append([
+                "Barcode ID", "Order Date", "Expected Delivery", "Order Status",
+                "Manufacturer", "Lead Time Days", "Auto Delete Date", "Date Deleted"
+            ])
         else:
-            deleted_ws = wb[DELETED_SHEET]
-        
-        inventory_ws = wb[INVENTORY_SHEET]
-        
-        # Get headers with bounds checking
-        inventory_headers = {}
-        if inventory_ws.max_row >= 1:
-            for idx, cell in enumerate(inventory_ws[1]):
-                if cell.value:
-                    inventory_headers[cell.value] = idx
-        
-        if not inventory_headers:
-            log_message("No headers found in inventory sheet", is_error=True)
-            return False
-        
-        # Calculate cutoff date
-        cutoff_date = datetime.now() - timedelta(days=DAYS_AFTER_EXPIRY)
-        log_message(f"Deleting items expired before: {cutoff_date.strftime('%Y-%m-%d')}")
-        
-        # Collect rows to delete (process in reverse to avoid index issues)
+            deleted_ws = wb[DELETED_ITEMS_SHEET]
+
+        # Build header mapping for OrderTracking
+        headers = {}
+        for idx, cell in enumerate(order_ws[1]):
+            if cell.value:
+                headers[cell.value] = idx
+
+        # Get today's date
+        today = datetime.now().date()
+
+        # Track what we're moving
+        expired_rows = []
         rows_to_delete = []
-        
-        for row_idx, row in enumerate(inventory_ws.iter_rows(min_row=2), start=2):
-            should_delete, reason = should_delete_item(row, inventory_headers, cutoff_date)
-            if should_delete:
-                rows_to_delete.append((row_idx, row, reason))
-        
-        log_message(f"Found {len(rows_to_delete)} items to delete")
-        
-        # Process deletions in reverse order to maintain row indices
-        deleted_count = 0
-        reorder_removals = 0
-        
-        for row_idx, row, reason in reversed(rows_to_delete):
-            try:
-                # Get chemical name for logging
-                chem_name_col = inventory_headers.get("Chemical Name")
-                chem_name = row[chem_name_col].value if chem_name_col is not None else "Unknown"
-                
-                # Copy row to DeletedItems with metadata
-                row_data = [cell.value for cell in row]
-                row_data.extend([
-                    datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                    reason
-                ])
-                deleted_ws.append(row_data)
-                
-                # Remove from ReorderUpdates sheet if present
-                reorder_removals += remove_from_reorder_sheet(wb, row, inventory_headers)
-                
-                # Delete from InventoryData
-                inventory_ws.delete_rows(row_idx)
-                deleted_count += 1
-                
-                log_message(f"Deleted: {chem_name} - {reason}")
-                
-            except Exception as e:
-                log_message(f"Error deleting row {row_idx}: {e}", is_error=True)
-                continue
-        
-        # Save changes
+
+        # Check each row in OrderTracking
+        for row_num, row in enumerate(order_ws.iter_rows(min_row=2), start=2):
+            auto_delete_date = row[headers.get("Auto Delete Date", 6)].value
+
+            if auto_delete_date:
+                try:
+                    # Handle different date formats
+                    if isinstance(auto_delete_date, str):
+                        delete_date = datetime.strptime(auto_delete_date, "%Y-%m-%d").date()
+                    else:
+                        delete_date = auto_delete_date.date() if hasattr(auto_delete_date, 'date') else auto_delete_date
+
+                    # Check if it's time to delete
+                    if delete_date <= today:
+                        # Collect row data
+                        row_data = []
+                        for cell in row:
+                            row_data.append(cell.value)
+
+                        # Add deletion date
+                        row_data.append(today.strftime("%Y-%m-%d"))
+
+                        expired_rows.append({
+                            'row_num': row_num,
+                            'data': row_data,
+                            'barcode': row[headers.get("Barcode ID", 0)].value,
+                            'chemical': "Unknown"  # We don't have chemical name in order tracking
+                        })
+
+                        rows_to_delete.append(row_num)
+
+                except (ValueError, TypeError, AttributeError) as e:
+                    print(f"Error parsing date for row {row_num}: {e}")
+                    continue
+
+        if not expired_rows:
+            messagebox.showinfo("No Action", "No expired order tracking entries found for today")
+            return True
+
+        # Show confirmation dialog
+        confirm_msg = f"Found {len(expired_rows)} expired order tracking entries:\n\n"
+        for item in expired_rows[:5]:  # Show first 5
+            confirm_msg += f"• {item['barcode']}\n"
+        if len(expired_rows) > 5:
+            confirm_msg += f"• ... and {len(expired_rows) - 5} more\n"
+        confirm_msg += f"\nMove these to '{DELETED_ITEMS_SHEET}' sheet?"
+
+        if not messagebox.askyesno("Confirm Cleanup", confirm_msg):
+            return False
+
+        # Move expired entries to DeletedItems sheet
+        for item in expired_rows:
+            deleted_ws.append(item['data'])
+
+        # Delete rows from OrderTracking (in reverse order to maintain indices)
+        for row_num in sorted(rows_to_delete, reverse=True):
+            order_ws.delete_rows(row_num)
+
+        # Save the workbook
         wb.save(EXCEL_FILE)
-        
-        log_message(f"Auto-deletion complete!")
-        log_message(f"Moved {deleted_count} expired/empty items to '{DELETED_SHEET}' sheet")
-        if reorder_removals > 0:
-            log_message(f"Removed {reorder_removals} corresponding entries from '{REORDER_SHEET}' sheet")
-        
+        wb.close()
+
+        # Show success message
+        success_msg = f"✅ Cleanup Complete!\n\n"
+        success_msg += f"Moved {len(expired_rows)} expired entries to '{DELETED_ITEMS_SHEET}'\n"
+        success_msg += f"Removed {len(rows_to_delete)} rows from '{ORDER_TRACKING_SHEET}'"
+
+        messagebox.showinfo("Success", success_msg)
         return True
-        
+
     except Exception as e:
-        log_message(f"Critical error in auto_delete_expired_empty: {e}", is_error=True)
+        messagebox.showerror("Error", f"Error during cleanup: {str(e)}")
         return False
 
+
+def main():
+    """Main function to run the order cleanup"""
+    # Hide the main tkinter window
+    root = tk.Tk()
+    root.withdraw()
+
+    try:
+        print("Starting order tracking cleanup...")
+        success = cleanup_expired_orders()
+
+        if success:
+            print("Order cleanup completed successfully!")
+        else:
+            print("Order cleanup completed with issues")
+
+    except Exception as e:
+        print(f"Error in main: {e}")
+        messagebox.showerror("System Error", f"An unexpected error occurred: {str(e)}")
+
+    finally:
+        root.destroy()
+
+
 if __name__ == "__main__":
-    success = auto_delete_expired_empty()
-    sys.exit(0 if success else 1)
+    main()
