@@ -47,7 +47,7 @@ class ExcelAuditLogger:
                 audit_ws.append(headers)
 
                 header_fill = PatternFill(start_color="366092", end_color="366092", fill_type="solid")
-                header_font = Font(color="FFFFFF", bold=True)
+                header_font = Font(bold=True)
 
                 for cell in audit_ws[1]:
                     cell.fill = header_fill
