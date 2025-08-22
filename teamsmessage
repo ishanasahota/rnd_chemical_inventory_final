@@ -738,8 +738,6 @@ def main_reorder_alert():
         print(f"Error sending weekly alerts: {e}")
 
 
-# Add this debug version at the top of your script to test Teams connectivity
-
 def test_teams_connection():
     """Test basic Teams webhook connectivity"""
     try:
