@@ -4,6 +4,206 @@ from collections import defaultdict
 import tkinter as tk
 from tkinter import messagebox
 
+import difflib
+import re
+
+
+def correct_chemical_names(text):
+    """
+    Corrects common typos in chemical names and terms using fuzzy matching.
+    Focuses on common chemical terms that appear in your inventory.
+    """
+    if not isinstance(text, str):
+        return text
+
+    # Common chemical terms and their correct spellings
+    chemical_terms = [
+        "buffer", "solution", "standard", "conductivity", "calibration",
+        "chemical", "potassium", "calcium", "magnesium", "chloride",
+        "sulfate", "nitrate", "phosphate", "hydroxide", "acetate",
+        "hydrochloric", "sulfuric", "nitric", "acetic", "citric",
+        "ethanol", "methanol", "isopropanol", "acetone", "benzene",
+        "distilled", "deionized", "reagent", "analytical", "technical",
+        "expired", "empty", "reorder", "unusable", "usable", "potassium",
+        "borax", 'standard', 'ipa',
+    ]
+
+    # pH-specific terms
+    ph_terms = ["ph", "pH"]
+
+
+
+    # Combine all reference terms
+    all_terms = chemical_terms + ph_terms
+
+    def correct_word(word):
+        """Correct individual word using fuzzy matching"""
+        # Remove common punctuation but preserve it
+        cleaned_word = re.sub(r'[^\w]', '', word.lower())
+
+        if len(cleaned_word) < 3:  # Don't correct very short words
+            return word
+
+        # Try to find close matches
+        matches = difflib.get_close_matches(cleaned_word,
+                                            [term.lower() for term in all_terms],
+                                            n=1, cutoff=0.7)
+
+        if matches:
+            # Find the original case version
+            for term in all_terms:
+                if term.lower() == matches[0]:
+                    # Preserve original punctuation
+                    if word.endswith((',', '.', ':', ';', ')', ']', '}')):
+                        return term + word[-1]
+                    return term
+
+        return word
+
+    # Split text into words and correct each
+    words = text.split()
+    corrected_words = [correct_word(word) for word in words]
+
+    return ' '.join(corrected_words)
+
+
+def correct_status_terms(text):
+    """Correct common status-related typos"""
+    if not isinstance(text, str):
+        return text
+
+    status_corrections = {
+        'expird': 'expired',
+        'expred': 'expired',
+        'expried': 'expired',
+        'emty': 'empty',
+        'emptyy': 'empty',
+        'reordr': 'reorder',
+        'reoder': 'reorder',
+        'unusuable': 'unusable',
+        'unuseable': 'unusable',
+        'useble': 'usable',
+        'useable': 'usable',
+        'adequte': 'adequate',
+        'adequat': 'adequate',
+    }
+
+    # Apply corrections (case insensitive)
+    corrected_text = text
+    for typo, correction in status_corrections.items():
+        # Use word boundaries to avoid partial replacements
+        pattern = r'\b' + re.escape(typo) + r'\b'
+        corrected_text = re.sub(pattern, correction, corrected_text, flags=re.IGNORECASE)
+
+    return corrected_text
+
+
+def enhanced_send_teams_message_safe(webhook_url, message_content, message_type="Alert", apply_typo_correction=True):
+    """
+    Enhanced Teams message sender with typo correction and comprehensive error handling
+    """
+    try:
+        import pymsteams
+
+        # Apply typo corrections if requested
+        if apply_typo_correction:
+            print(f"Applying typo correction to {message_type} message...")
+
+            # Correct chemical names and status terms
+            corrected_content = correct_chemical_names(message_content)
+            corrected_content = correct_status_terms(corrected_content)
+
+            # Show what was corrected (for debugging)
+            if corrected_content != message_content:
+                print("Typo corrections applied:")
+                # Find differences (simplified)
+                original_words = set(message_content.split())
+                corrected_words = set(corrected_content.split())
+                if corrected_words != original_words:
+                    print(f"  - Applied corrections in {message_type} message")
+
+            message_content = corrected_content
+
+        # Check message length
+        if len(message_content) > 28000:  # Teams has ~28KB limit
+            print(f"Warning: {message_type} message is {len(message_content)} characters, truncating...")
+            message_content = message_content[:27000] + "\n\n...[Message truncated due to size limit]"
+
+        # Create and send message
+        msg = pymsteams.connectorcard(webhook_url)
+        msg.text(message_content)
+
+        # Send and capture response
+        response = msg.send()
+        print(f"{message_type} message sent successfully. Response: {response}")
+        return True
+
+    except Exception as e:
+        print(f"Error sending {message_type} message: {str(e)}")
+        print(f"Message length was: {len(message_content)} characters")
+        import traceback
+        traceback.print_exc()
+        return False
+
+
+# Test function to verify typo correction
+def test_typo_correction():
+    """Test the typo correction functionality"""
+    test_cases = [
+        "bufer solution ph 7",
+        "conduktivity standrd 5 ms/cm",
+        "expird chemicals need reordr",
+        "emty botles are unusuable",
+        "adequte stock levels",
+        "Sodium Hydroxde solution"
+    ]
+
+    print("=== TESTING TYPO CORRECTION ===")
+    for test in test_cases:
+        corrected = correct_chemical_names(test)
+        corrected = correct_status_terms(corrected)
+        print(f"Original:  {test}")
+        print(f"Corrected: {corrected}")
+        print("-" * 40)
+
+
+# Updated usage in your main script:
+"""
+Replace your existing send_teams_message_safe calls with:
+
+# For critical fluids message:
+enhanced_send_teams_message_safe(webhook_url, critical_message, "Critical Fluids")
+
+# For reorder updates message:
+enhanced_send_teams_message_safe(webhook_url, reorder_message, "Reorder Updates")
+
+# If you want to disable typo correction for testing:
+enhanced_send_teams_message_safe(webhook_url, message, "Test", apply_typo_correction=False)
+"""
+
+
+# Example of how to integrate into your existing code:
+def integrate_typo_correction_example():
+    """Example of how to integrate this into your existing script"""
+
+    # Your existing webhook URL
+    webhook_url = "https://nervtechnology2.webhook.office.com/webhookb2/9b48b976-ff78-47d9-84af-0c86adb460bd@c943a20e-cde2-4f23-b31e-66242a699eb2/IncomingWebhook/2efe91b202c844cd9e3ad8f664443bb3/756d53aa-a382-47d3-9d8c-2d22fa02b8a3/V24Osd4C7KfMwor8lyRXSbBRdZcuzt6wgDMRlLNuh9QtE1"
+
+    # Replace these lines in your script:
+    # send_teams_message_safe(webhook_url, critical_message, "Critical Fluids")
+    # send_teams_message_safe(webhook_url, reorder_message, "Reorder Updates")
+
+    # With these lines:
+    # enhanced_send_teams_message_safe(webhook_url, critical_message, "Critical Fluids")
+    # enhanced_send_teams_message_safe(webhook_url, reorder_message, "Reorder Updates")
+
+    pass
+
+
+if __name__ == "__main__":
+    # Run test to see typo correction in action
+    test_typo_correction()
+
 try:
     # Load workbook and InventoryData
     wb = load_workbook('/Users/ishanasahota/Desktop/fluidAI/rnd_inventory_data_2.xlsx', data_only=True)
@@ -43,45 +243,94 @@ try:
 
 
     # Group chemicals by word components + manufacturer
-    component_groups = defaultdict(list)  # Will store [(original_name, manufacturer, qty), ...]
+    component_groups = defaultdict(
+        list)  # Will store [(original_name, manufacturer, qty, nominal_vol, date_opened), ...]
 
     for row in ws.iter_rows(min_row=2, values_only=True):
         name = str(row[1] or "").strip()  # Column B: Chemical Name (keep original case)
         name_lower = name.lower()  # For keyword matching
         manufacturer = str(row[7] or "").strip()  # Column H: Manufacturer
         remaining_qty = row[6]  # Column G: Remaining Quantity
+        nominal_volume = row[5]  # Column F: Bottle Nominal Volume
+        date_opened = row[9] if len(row) > 9 else None  # Column J: Date Opened (index 9)
 
         if any(keyword in name_lower for keyword in keywords):
             try:
                 # If None or invalid, use 0 instead
                 qty = float(remaining_qty) if remaining_qty not in (None, "") else 0.0
+                nominal_vol = float(nominal_volume) if nominal_volume not in (None, "") else 0.0
             except (TypeError, ValueError):
                 qty = 0.0
+                nominal_vol = 0.0
 
             # Get word components for grouping
             components = get_word_components(name_lower)
             group_key = (components, manufacturer)
-            component_groups[group_key].append((name, manufacturer, qty))
+            component_groups[group_key].append((name, manufacturer, qty, nominal_vol, date_opened))
 
-    # Now combine groups and create summary
+    # Now combine groups and create summary with enhanced bottle tracking
     critical_summary = {}
     debug_info = []
 
     for (components, manufacturer), items in component_groups.items():
-        total_qty = sum(item[2] for item in items)  # Sum all quantities
+        # Enhanced bottle tracking
+        unopened_usable = 0
+        opened_usable = 0
+        opened_unusable = 0
+        unopened_unusable = 0  # This would be very rare but theoretically possible
+
+        usable_qty = 0.0
+        do_not_use_qty = 0.0
+
+        for item in items:
+            name, mfg, qty, nominal_vol, date_opened = item
+
+            # Determine if bottle is opened
+            is_opened = date_opened is not None and str(date_opened).strip() != ""
+
+            # Check if bottle has less than 10% remaining (unusable)
+            is_unusable = nominal_vol > 0 and qty < (nominal_vol * 0.1)
+
+            # Categorize bottles by both status
+            if is_opened and is_unusable:
+                opened_unusable += 1
+                do_not_use_qty += qty
+            elif is_opened and not is_unusable:
+                opened_usable += 1
+                usable_qty += qty
+            elif not is_opened and is_unusable:
+                unopened_unusable += 1  # Very rare case
+                do_not_use_qty += qty
+            else:  # not opened and not unusable
+                unopened_usable += 1
+                usable_qty += qty
+
+        total_bottles = len(items)
+        total_qty = usable_qty + do_not_use_qty
 
         # Use the first (or most complete) name as display name
         display_name = max(items, key=lambda x: len(x[0]))[0]  # Longest name
 
         key = (display_name, manufacturer)
-        critical_summary[key] = total_qty
+        critical_summary[key] = {
+            'total_qty': total_qty,
+            'usable_qty': usable_qty,
+            'do_not_use_qty': do_not_use_qty,
+            'unopened_usable': unopened_usable,
+            'opened_usable': opened_usable,
+            'opened_unusable': opened_unusable,
+            'unopened_unusable': unopened_unusable,
+            'total_bottles': total_bottles
+        }
 
         # Debug info
         if len(items) > 1:
             item_details = [f"'{item[0]}': {item[2]}L" for item in items]
-            debug_info.append(f"COMBINED ({manufacturer}): {', '.join(item_details)} → Total: {total_qty}L")
+            debug_info.append(
+                f"COMBINED ({manufacturer}): {', '.join(item_details)} → Total: {total_qty}L, Usable: {usable_qty}L")
         else:
-            debug_info.append(f"SINGLE ({manufacturer}): '{items[0][0]}': {total_qty}L")
+            debug_info.append(
+                f"SINGLE ({manufacturer}): '{items[0][0]}': Total: {total_qty}L, Usable: {usable_qty}L")
 
     # Print debug info to console
     print("=== WORD COMPONENT GROUPING DEBUG INFO ===")
@@ -91,38 +340,73 @@ try:
     print("=" * 45)
 
 
-    # Create table format for critical chemicals
+    # Create table format for critical chemicals with enhanced bottle info
     def create_critical_chemicals_table(critical_data):
         if not critical_data:
             return "No critical fluids found."
 
         # Create table header
-        table = "| **Chemical Name** | **Manufacturer** | **Remaining (L)** | **Status** |\n"
-        table += "|-------------------|------------------|-------------------|------------|\n"
+        table = "| **Chemical Name** | **Manufacturer** | **Usable (L)** | **Status** | **Bottle Details** |\n"
+        table += "|-------------------|------------------|----------------|------------|------------------|\n"
 
-        # Sort by remaining quantity (lowest first for priority)
-        sorted_items = sorted(critical_data.items(), key=lambda x: x[1])
+        # Sort by usable quantity (lowest first for priority)
+        sorted_items = sorted(critical_data.items(), key=lambda x: x[1]['usable_qty'])
 
-        for (name, manufacturer), total_amount in sorted_items:
+        for (name, manufacturer), data in sorted_items:
+            usable_amount = data['usable_qty']
+            do_not_use_qty = data['do_not_use_qty']
+
+            # Get bottle counts
+            unopened_usable = data['unopened_usable']
+            opened_usable = data['opened_usable']
+            opened_unusable = data['opened_unusable']
+            unopened_unusable = data['unopened_unusable']
+            total_bottles = data['total_bottles']
+
             # Truncate long names for better table formatting
             display_name = name.title()
             if len(display_name) > 25:
-                display_name = display_name[:40] + "..."
+                display_name = display_name[:22] + "..."
 
             if len(manufacturer) > 15:
                 manufacturer_display = manufacturer[:12] + "..."
             else:
                 manufacturer_display = manufacturer
 
-            # Determine status
-            if total_amount < 6:
+            # Determine status based on USABLE quantity with 5L threshold
+            if usable_amount < 4:
                 status = "🚨 REORDER NOW"
-            elif total_amount < 10:
+            elif usable_amount < 5:
                 status = "⚠️ Low Stock"
             else:
                 status = "✅ Adequate"
 
-            table += f"| {display_name} | {manufacturer_display} | {total_amount:.2f} | {status} |\n"
+            # Create enhanced bottle info in the format: "Bottles: X unopened, Y opened (usable), Z opened (unusable)"
+            bottle_parts = []
+
+            if unopened_usable > 0:
+                bottle_parts.append(f"{unopened_usable} unopened")
+
+            if opened_usable > 0:
+                bottle_parts.append(f"{opened_usable} opened (usable)")
+
+            if opened_unusable > 0:
+                bottle_parts.append(f"{opened_unusable} opened (unusable)")
+
+            if unopened_unusable > 0:  # Very rare case
+                bottle_parts.append(f"{unopened_unusable} unopened (unusable)")
+
+            if bottle_parts:
+                bottle_info = f"**Bottles:** {', '.join(bottle_parts)}"
+            else:
+                bottle_info = f"**Bottles:** {total_bottles} total"
+
+            # Show usable quantity in main column, but add note about total if different
+            qty_display = f"{usable_amount:.2f}"
+            if do_not_use_qty > 0:
+                qty_display += f" (+{do_not_use_qty:.2f} unusable)"
+
+            table += f"| {display_name} | {manufacturer_display} | {qty_display} | {status} | {bottle_info} |\n"
 
         return table
 
@@ -130,45 +414,106 @@ try:
     # Create both formats
     critical_table = create_critical_chemicals_table(critical_summary)
 
-    # Also keep the original list format for comparison/backup
+    # Also keep the original list format for comparison/backup (using usable quantities)
     critical_list_lines = []
-    for (name, manufacturer), total_amount in critical_summary.items():
+    for (name, manufacturer), data in critical_summary.items():
+        usable_amount = data['usable_qty']
+        total_amount = data['total_qty']
+        do_not_use_qty = data['do_not_use_qty']
         display_name = name.title()  # Capitalize for output
-        main_line = f"- {display_name} ({manufacturer}) ➜ {total_amount:.2f} L"
+
+        if do_not_use_qty > 0:
+            main_line = f"- {display_name} ({manufacturer}) ➜ {usable_amount:.2f} L usable ({total_amount:.2f} L total, {do_not_use_qty:.2f} L unusable)"
+        else:
+            main_line = f"- {display_name} ({manufacturer}) ➜ {usable_amount:.2f} L"
+
         critical_list_lines.append(main_line)
-        if total_amount < 6:
-            warning_line = "  - Warning: Almost at 1 bottle. Please reorder immediately."
+        if usable_amount < 5:  # Updated threshold to 5L for usable quantity
+            warning_line = "  - Warning: Below 5L usable threshold. Please reorder immediately."
             critical_list_lines.append(warning_line)
 
     critical_list_str = "\n".join(critical_list_lines)
 
-    # Count items by status for summary
-    reorder_count = sum(1 for qty in critical_summary.values() if qty < 6)
-    low_stock_count = sum(1 for qty in critical_summary.values() if 6 <= qty < 10)
-    adequate_count = sum(1 for qty in critical_summary.values() if qty >= 10)
+    # Count items by status for summary (using usable quantities)
+    reorder_count = sum(1 for data in critical_summary.values() if data['usable_qty'] < 4)
+    low_stock_count = sum(1 for data in critical_summary.values() if 4 <= data['usable_qty'] < 5)
+    adequate_count = sum(1 for data in critical_summary.values() if data['usable_qty'] >= 5)
 
     # Send critical fluids to Teams with enhanced table format
     msg_critical = pymsteams.connectorcard(
         "https://nervtechnology2.webhook.office.com/webhookb2/9b48b976-ff78-47d9-84af-0c86adb460bd@c943a20e-cde2-4f23-b31e-66242a699eb2/IncomingWebhook/2efe91b202c844cd9e3ad8f664443bb3/756d53aa-a382-47d3-9d8c-2d22fa02b8a3/V24Osd4C7KfMwor8lyRXSbBRdZcuzt6wgDMRlLNuh9QtE1")
 
-    summary_text = f"**Summary:** {reorder_count} need immediate reorder, {low_stock_count} low stock, {adequate_count} adequate"
+    summary_text = f"**Summary:** {reorder_count} need immediate reorder, {low_stock_count} low stock, {adequate_count} adequate (based on usable quantities)"
 
     msg_critical.text(
         "**Weekly Critical Chemical Update Alert**\n\n"
         f"{summary_text}\n\n"
         f"{critical_table}\n\n"
         "---\n"
-        "**Legend:** 🚨 = Reorder immediately (<6L) | ⚠️ = Low stock (6-10L) | ✅ = Adequate (>10L)"
+        "**Legend:** 🚨 = Reorder immediately (<4L usable) | ⚠️ = Low stock (4-5L usable) | ✅ = Adequate (>5L usable)\n"
+        "**Bottle Status:** unopened = sealed bottles | opened (usable) = opened with >10% remaining | opened (unusable) = opened with <10% remaining"
     )
     msg_critical.send()
 
-    # === PART 2: Enhanced Reorder Updates Table ===
+    # === PART 2: Enhanced Reorder Updates Table with Improved Bottle Tracking ===
     ws_reorder = wb['ReorderUpdates']
 
     # Dictionary to group by chemical name and manufacturer
     reorder_groups = defaultdict(list)
 
-    # Collect all items from ReorderUpdates sheet
+    # We need to go back to InventoryData to get bottle count and opened status
+    ws_inventory = wb['InventoryData']
+
+    # First, collect all items from InventoryData to track bottles with enhanced categorization
+    inventory_items = {}
+    for row in ws_inventory.iter_rows(min_row=2, values_only=True):
+        if not row or len(row) < 8:  # Make sure we have enough columns
+            continue
+
+        name = str(row[1] or "").strip()  # Column B: Chemical Name
+        manufacturer = str(row[7] or "").strip()  # Column H: Manufacturer
+        remaining_qty = row[6]  # Column G: Remaining Quantity
+        nominal_volume = row[5]  # Column F: Bottle Nominal Volume
+        date_opened = row[9] if len(row) > 9 else None  # Column J: Date Opened
+
+        if not name:  # Skip if no chemical name
+            continue
+
+        # Convert quantity to float, default to 0 if invalid
+        try:
+            qty = float(remaining_qty) if remaining_qty not in (None, "") else 0.0
+            nominal_vol = float(nominal_volume) if nominal_volume not in (None, "") else 0.0
+        except (TypeError, ValueError):
+            qty = 0.0
+            nominal_vol = 0.0
+
+        # Determine bottle status
+        is_opened = date_opened is not None and str(date_opened).strip() != ""
+        is_unusable = nominal_vol > 0 and qty < (nominal_vol * 0.1)  # Less than 10%
+
+        group_key = (name, manufacturer)
+        if group_key not in inventory_items:
+            inventory_items[group_key] = {
+                'unopened_usable': 0,
+                'opened_usable': 0,
+                'opened_unusable': 0,
+                'unopened_unusable': 0,
+                'total_bottles': 0
+            }
+
+        inventory_items[group_key]['total_bottles'] += 1
+
+        # Categorize by both opened status and usability
+        if is_opened and is_unusable:
+            inventory_items[group_key]['opened_unusable'] += 1
+        elif is_opened and not is_unusable:
+            inventory_items[group_key]['opened_usable'] += 1
+        elif not is_opened and is_unusable:
+            inventory_items[group_key]['unopened_unusable'] += 1
+        else:  # not opened and not unusable
+            inventory_items[group_key]['unopened_usable'] += 1
+
+    # Now collect items from ReorderUpdates sheet
     for row in ws_reorder.iter_rows(min_row=2, values_only=True):
         if not row or len(row) < 7:  # Make sure we have enough columns
             continue
@@ -188,14 +533,16 @@ try:
         except (TypeError, ValueError):
             qty = 0.0
 
-        # Determine status
+        # Determine status - ALWAYS include expired items regardless of quantity
         status = None
         if expiry_alert == "Expired":
             status = "Expired"
         elif quantity_alert == "Empty":
             status = "Empty"
+        elif quantity_alert == "Do Not Use":
+            status = "Do Not Use"
         elif expiry_alert == "Order More" or quantity_alert == "Order More":
-            status = "Order More"
+            status = "Almost Empty/Expired"
 
         if status:  # Only add if there's a relevant status
             group_key = (name, manufacturer)
@@ -205,45 +552,83 @@ try:
     reorder_data = []
 
     for (name, manufacturer), items in reorder_groups.items():
-        # Combine quantities for same name+manufacturer
+        # Calculate different quantity totals
         total_qty = sum(item[0] for item in items)
+        usable_qty = sum(item[0] for item in items if item[1] not in ["Do Not Use"])
+        do_not_use_qty = sum(item[0] for item in items if item[1] == "Do Not Use")
 
-        # Determine priority status (Expired > Empty > Order More)
+        # Determine priority status (Expired > Empty > Do Not Use > Order More)
         statuses = [item[1] for item in items]
         if "Expired" in statuses:
             final_status = "🔴 Expired"
         elif "Empty" in statuses:
             final_status = "⚫ Empty"
+        elif "Do Not Use" in statuses and len(set(statuses)) == 1:  # Only "Do Not Use" items
+            final_status = "🚫 Do Not Use"
         else:
-            final_status = "🟡 Order More"
+            final_status = "🟡 Almost Empty/Expired"
 
-        reorder_data.append((name, manufacturer, total_qty, final_status))
+        # Prepare quantity display
+        if do_not_use_qty > 0 and usable_qty > 0:
+            qty_display = f"{usable_qty:.2f} usable (+{do_not_use_qty:.2f} unusable)"
+        elif do_not_use_qty > 0:
+            qty_display = f"{do_not_use_qty:.2f} (all unusable)"
+        else:
+            qty_display = f"{total_qty:.2f}"
+
+        # Get enhanced bottle information from inventory tracking
+        group_key = (name, manufacturer)
+        bottle_info = ""
+        if group_key in inventory_items:
+            bottle_data = inventory_items[group_key]
+            bottle_parts = []
+
+            if bottle_data['unopened_usable'] > 0:
+                bottle_parts.append(f"{bottle_data['unopened_usable']} unopened")
+
+            if bottle_data['opened_usable'] > 0:
+                bottle_parts.append(f"{bottle_data['opened_usable']} opened (usable)")
+
+            if bottle_data['opened_unusable'] > 0:
+                bottle_parts.append(f"{bottle_data['opened_unusable']} opened (unusable)")
+
+            if bottle_data['unopened_unusable'] > 0:
+                bottle_parts.append(f"{bottle_data['unopened_unusable']} unopened (unusable)")
+
+            if bottle_parts:
+                bottle_info = f"**Bottles:** {', '.join(bottle_parts)}"
+            else:
+                bottle_info = f"**Bottles:** {bottle_data['total_bottles']} total"
+        else:
+            bottle_info = "No bottle data"
+
+        reorder_data.append((name, manufacturer, qty_display, final_status, bottle_info))
 
 
-    # Create enhanced table format
+    # Create enhanced table format with improved bottle information
     def create_reorder_table(reorder_data):
         if not reorder_data:
             return "No items requiring attention at this time."
 
-        # Create table header
-        table = "| **Chemical Name** | **Manufacturer** | **Remaining (L)** | **Status** |\n"
-        table += "|-------------------|------------------|-------------------|------------|\n"
+        # Create table header with enhanced Bottle Details column
+        table = "| **Chemical Name** | **Manufacturer** | **Remaining (L)** | **Status** | **Bottle Details** |\n"
+        table += "|-------------------|------------------|-------------------|------------|------------------|\n"
 
-        # Sort by status priority (Expired first, then Empty, then Order More)
-        status_priority = {"🔴 Expired": 1, "⚫ Empty": 2, "🟡 Order More": 3}
-        sorted_data = sorted(reorder_data, key=lambda x: (status_priority.get(x[3], 4), x[2]))
+        # Sort by status priority (Expired first, then Empty, then Do Not Use, then Order More)
+        status_priority = {"🔴 Expired": 1, "⚫ Empty": 2, "🚫 Do Not Use": 3, "🟡 Almost Empty/Expired": 4}
+        sorted_data = sorted(reorder_data, key=lambda x: (status_priority.get(x[3], 5), x[0]))
 
-        for name, manufacturer, qty, status in sorted_data:
+        for name, manufacturer, qty_display, status, bottle_info in sorted_data:
             # Truncate long names for better table formatting
             display_name = name.title() if name else "Unknown"
-            if len(display_name) > 30:
-                display_name = display_name[:27] + "..."
+            if len(display_name) > 25:  # Reduced to make room for bottle info column
+                display_name = display_name[:22] + "..."
 
             display_manufacturer = manufacturer if manufacturer else "Unknown"
-            if len(display_manufacturer) > 15:
-                display_manufacturer = display_manufacturer[:12] + "..."
+            if len(display_manufacturer) > 12:  # Reduced to make room for bottle info column
+                display_manufacturer = display_manufacturer[:9] + "..."
 
-            table += f"| {display_name} | {display_manufacturer} | {qty:.2f} | {status} |\n"
+            table += f"| {display_name} | {display_manufacturer} | {qty_display} | {status} | {bottle_info} |\n"
 
         return table
 
@@ -254,9 +639,10 @@ try:
     # Count by status
     expired_count = sum(1 for item in reorder_data if "Expired" in item[3])
     empty_count = sum(1 for item in reorder_data if "Empty" in item[3])
+    do_not_use_count = sum(1 for item in reorder_data if "Do Not Use" in item[3])
     order_more_count = sum(1 for item in reorder_data if "Order More" in item[3])
 
-    summary = f"**Summary:** {expired_count} expired, {empty_count} empty, {order_more_count} need reordering"
+    summary = f"**Summary:** {expired_count} expired, {empty_count} empty, {do_not_use_count} do not use, {order_more_count} need reordering"
 
     # Send the enhanced table message
     msg_table = pymsteams.connectorcard(
@@ -266,12 +652,13 @@ try:
         f"{summary}\n\n"
         f"{reorder_table}\n\n"
         "---\n"
-        "**Legend:** 🔴 = Expired | ⚫ = Empty | 🟡 = Needs reordering"
+        "**Legend:** 🔴 = Expired | ⚫ = Empty | 🚫 = Do Not Use (<10% remaining) | 🟡 = Critical, almost empty\n"
+        "**Bottle Status:** unopened = sealed bottles | opened (usable) = opened with >10% remaining | opened (unusable) = opened with <10% remaining"
     )
     msg_table.send()
 
     print(
-        f"Weekly alerts sent successfully. Found {len(critical_summary)} critical fluids, {expired_count} expired items, {empty_count} empty items, and {order_more_count} items needing reorder.")
+        f"Weekly alerts sent successfully. Found {len(critical_summary)} critical fluids, {expired_count} expired items, {empty_count} empty items, {do_not_use_count} do not use items, and {order_more_count} items needing reorder.")
 
 except Exception as e:
     print(f"Error sending weekly alerts: {e}")
@@ -286,6 +673,8 @@ def main_reorder_alert():
         ws = wb['InventoryData']
 
         order_more_items = []
+        do_not_use_items = []
+        expired_items = []
 
         for row in ws.iter_rows(min_row=2, values_only=True):
             if not row or len(row) < 6:  # Skip empty rows
@@ -295,29 +684,128 @@ def main_reorder_alert():
             quantity_alert_e = row[4]  # Column E: Expiry alert column
             quantity_alert_f = row[5]  # Column F: Quantity alert column
 
-            # Check if "Order More" is in either column E or F
-            if quantity_alert_e == "Order More" or quantity_alert_f == "Order More":
+            # Check status - ALWAYS include expired items
+            if quantity_alert_e == "Expired":
+                expired_items.append(item_name)
+            elif quantity_alert_f == "Do Not Use":
+                do_not_use_items.append(item_name)
+            elif quantity_alert_e == "Order More" or quantity_alert_f == "Order More":
                 order_more_items.append(item_name)
 
+        # Combine all items that need attention
+        all_items = []
+
+        # Add expired items first (highest priority)
+        for item in expired_items:
+            all_items.append((item, "🔴 Expired"))
+
+        # Add do not use items
+        for item in do_not_use_items:
+            all_items.append((item, "🚫 Do Not Use"))
+
+        # Add order more items
+        for item in order_more_items:
+            all_items.append((item, "🟡 Almost Empty/Expired"))
+
         # Create table format for reorder items
-        if order_more_items:
+        if all_items:
             table_msg = "| **Chemical Name** | **Status** |\n"
             table_msg += "|-------------------|------------|\n"
-            for item in order_more_items:
+            for item_name, status in all_items:
                 # Truncate long names
-                display_name = (item[:35] + "...") if len(item) > 38 else item
-                table_msg += f"| {display_name} | Order More |\n"
+                display_name = (item_name[:35] + "...") if len(item_name) > 38 else item_name
+                table_msg += f"| {display_name} | {status} |\n"
         else:
-            table_msg = "No items need reordering at this time."
+            table_msg = "No items need immediate attention at this time."
 
         # Send Teams message with table format
         msg_reorder = pymsteams.connectorcard(
             "https://nervtechnology2.webhook.office.com/webhookb2/9b48b976-ff78-47d9-84af-0c86adb460bd@c943a20e-cde2-4f23-b31e-66242a699eb2/IncomingWebhook/2efe91b202c844cd9e3ad8f664443bb3/756d53aa-a382-47d3-9d8c-2d22fa02b8a3/V24Osd4C7KfMwor8lyRXSbBRdZcuzt6wgDMRlLNuh9QtE1")
+
+        total_count = len(expired_items) + len(do_not_use_items) + len(order_more_items)
+        summary_breakdown = f"Expired: {len(expired_items)}, Do Not Use: {len(do_not_use_items)}, Amost Empty/Expired: {len(order_more_items)}"
+
         msg_reorder.text(
             "**Critical Chemical Reorder Alert**\n\n"
-            f"**Items requiring immediate attention: {len(order_more_items)}**\n\n"
-            f"{table_msg}"
+            f"**Items requiring immediate attention: {total_count}**\n"
+            f"**Breakdown:** {summary_breakdown}\n\n"
+            f"{table_msg}\n\n"
+            "---\n"
+            "**Legend:** 🔴 = Expired (handle regardless of quantity) | 🚫 = Do Not Use (<10% remaining) | 🟡 = Needs reordering, almost empty/expired"
         )
         msg_reorder.send()
     except Exception as e:
         print(f"Error sending weekly alerts: {e}")
+
+
+# Add this debug version at the top of your script to test Teams connectivity
+
+def test_teams_connection():
+    """Test basic Teams webhook connectivity"""
+    try:
+        import pymsteams
+        test_msg = pymsteams.connectorcard(
+            "https://nervtechnology2.webhook.office.com/webhookb2/9b48b976-ff78-47d9-84af-0c86adb460bd@c943a20e-cde2-4f23-b31e-66242a699eb2/IncomingWebhook/2efe91b202c844cd9e3ad8f664443bb3/756d53aa-a382-47d3-9d8c-2d22fa02b8a3/V24Osd4C7KfMwor8lyRXSbBRdZcuzt6wgDMRlLNuh9QtE1")
+        response = test_msg.send()
+        print(f"Teams test message result: {response}")
+        return True
+    except Exception as e:
+        print(f"Teams connection test failed: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+
+
+# Enhanced message sending with better error handling
+def send_teams_message_safe(webhook_url, message_content, message_type="Alert"):
+    """Send Teams message with comprehensive error handling"""
+    try:
+        import pymsteams
+
+        # Check message length
+        if len(message_content) > 28000:  # Teams has ~28KB limit
+            print(f"Warning: {message_type} message is {len(message_content)} characters, truncating...")
+            message_content = message_content[:27000] + "\n\n...[Message truncated due to size limit]"
+
+        msg = pymsteams.connectorcard(webhook_url)
+        msg.text(message_content)
+
+        # Send and capture response
+        response = msg.send()
+        print(f"{message_type} message sent successfully. Response: {response}")
+        return True
+
+    except Exception as e:
+        print(f"Error sending {message_type} message: {str(e)}")
+        print(f"Message length was: {len(message_content)} characters")
+        import traceback
+        traceback.print_exc()
+        return False
+
+
+
+# For critical fluids message:
+webhook_url = "https://nervtechnology2.webhook.office.com/webhookb2/9b48b976-ff78-47d9-84af-0c86adb460bd@c943a20e-cde2-4f23-b31e-66242a699eb2/IncomingWebhook/2efe91b202c844cd9e3ad8f664443bb3/756d53aa-a382-47d3-9d8c-2d22fa02b8a3/V24Osd4C7KfMwor8lyRXSbBRdZcuzt6wgDMRlLNuh9QtE1"
+
+critical_message = (
+    "**Weekly Critical Chemical Update Alert**\n\n"
+    f"{summary_text}\n\n"
+    f"{critical_table}\n\n"
+    "---\n"
+    "**Legend:** 🚨 = Reorder immediately (<4L usable) | ⚠️ = Low stock (4-5L usable) | ✅ = Adequate (>5L usable)\n"
+    "**Bottle Status:** unopened = sealed bottles | opened (usable) = opened with >10% remaining | opened (unusable) = opened with <10% remaining"
+)
+
+send_teams_message_safe(webhook_url, critical_message, "Critical Fluids")
+
+# For reorder updates message:
+reorder_message = (
+    "**Weekly Inventory Status Report**\n\n"
+    f"{summary}\n\n"
+    f"{reorder_table}\n\n"
+    "---\n"
+    "**Legend:** 🔴 = Expired | ⚫ = Empty | 🚫 = Do Not Use (<10% remaining) | 🟡 = Needs reordering, almost empty/expired\n"
+    "**Bottle Status:** unopened = sealed bottles | opened (usable) = opened with >10% remaining | opened (unusable) = opened with <10% remaining"
+)
+
+send_teams_message_safe(webhook_url, reorder_message, "Reorder Updates")
