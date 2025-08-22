@@ -11,6 +11,7 @@ There are five primary scripts in this repository:
   - Prompts you for chemical details if the barcode is new, or usage amount if it's already in the system
 - Option 2 is to take stock and/or mark empty bottles
 - Option 3 is to exit the script
+- it might say there’s a problem after running and closing out of the inventory/stock code when you try to open the excel sheet, but open it anyways, the only problem it has is a formatting issue, nothing hardcore
 
 ### **teamsmessage.py**
 - Sends automated Teams alerts on 2 different things: an update on the status of critical chemicals, and a general summary table of anything expired, empty, unusable and things that are on the verge of being
