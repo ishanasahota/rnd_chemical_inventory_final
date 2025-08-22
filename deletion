@@ -2,10 +2,11 @@ import tkinter as tk
 from tkinter import messagebox
 from openpyxl import load_workbook
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 
 EXCEL_FILE = "/Users/ishanasahota/Desktop/fluidAI/rnd_inventory_data_2.xlsx"
 ORDER_TRACKING_SHEET = "OrderTracking"
+INVENTORY_SHEET = "InventoryData"
 DELETED_ITEMS_SHEET = "DeletedItems"
 
 
@@ -14,24 +15,25 @@ def cleanup_expired_orders():
     try:
         if not os.path.exists(EXCEL_FILE):
             messagebox.showerror("Error", f"Inventory file {EXCEL_FILE} not found")
-            return False
+            return [], [], None, None, None
 
         wb = load_workbook(EXCEL_FILE)
 
         # Check if OrderTracking sheet exists
         if ORDER_TRACKING_SHEET not in wb.sheetnames:
             messagebox.showinfo("No Action", f"No {ORDER_TRACKING_SHEET} sheet found")
-            return False
+            return [], [], None, None, None
 
         order_ws = wb[ORDER_TRACKING_SHEET]
 
         # Create DeletedItems sheet if it doesn't exist
         if DELETED_ITEMS_SHEET not in wb.sheetnames:
             deleted_ws = wb.create_sheet(DELETED_ITEMS_SHEET)
-            # Add headers to match OrderTracking + deletion date
+            # Add headers to match your DeletedItems structure
             deleted_ws.append([
-                "Barcode ID", "Order Date", "Expected Delivery", "Order Status",
-                "Manufacturer", "Lead Time Days", "Auto Delete Date", "Date Deleted"
+                "Barcode", "Chemical Name", "Lot Number", "Bottle Nominal Value (L)",
+                "Remaining Value", "Manufacturer", "Expiry Date", "Move Date",
+                "Source", "Deletion Reason"
             ])
         else:
             deleted_ws = wb[DELETED_ITEMS_SHEET]
@@ -40,7 +42,7 @@ def cleanup_expired_orders():
         headers = {}
         for idx, cell in enumerate(order_ws[1]):
             if cell.value:
-                headers[cell.value] = idx
+                headers[cell.value.strip()] = idx
 
         # Get today's date
         today = datetime.now().date()
@@ -51,7 +53,11 @@ def cleanup_expired_orders():
 
         # Check each row in OrderTracking
         for row_num, row in enumerate(order_ws.iter_rows(min_row=2), start=2):
-            auto_delete_date = row[headers.get("Auto Delete Date", 6)].value
+            auto_delete_date_col = headers.get("Auto Delete Date")
+            if auto_delete_date_col is not None:
+                auto_delete_date = row[auto_delete_date_col].value
+            else:
+                continue
 
             if auto_delete_date:
                 try:
@@ -63,19 +69,32 @@ def cleanup_expired_orders():
 
                     # Check if it's time to delete
                     if delete_date <= today:
-                        # Collect row data
-                        row_data = []
-                        for cell in row:
-                            row_data.append(cell.value)
+                        # Map OrderTracking data to DeletedItems format
+                        chemical_name = row[
+                            headers.get("Chemical Name", 0)].value if "Chemical Name" in headers else "Unknown"
+                        manufacturer = row[
+                            headers.get("Manufacturer", 1)].value if "Manufacturer" in headers else "Unknown"
+                        order_date = row[headers.get("Order Date", 2)].value if "Order Date" in headers else None
 
-                        # Add deletion date
-                        row_data.append(today.strftime("%Y-%m-%d"))
+                        # Format for DeletedItems sheet (OrderTracking doesn't have all fields)
+                        row_data = [
+                            f"ORDER-{row_num}",  # Barcode (generate since OrderTracking may not have one)
+                            chemical_name,  # Chemical Name
+                            "N/A",  # Lot Number (not in OrderTracking)
+                            "N/A",  # Bottle Nominal Value
+                            "N/A",  # Remaining Value
+                            manufacturer,  # Manufacturer
+                            "N/A",  # Expiry Date (not in OrderTracking)
+                            today.strftime("%Y-%m-%d"),  # Move Date
+                            "OrderTracking",  # Source
+                            "Auto delete date reached"  # Deletion Reason
+                        ]
 
                         expired_rows.append({
                             'row_num': row_num,
                             'data': row_data,
-                            'barcode': row[headers.get("Barcode ID", 0)].value,
-                            'chemical': "Unknown"  # We don't have chemical name in order tracking
+                            'chemical': chemical_name,
+                            'source': 'OrderTracking'
                         })
 
                         rows_to_delete.append(row_num)
@@ -84,64 +103,201 @@ def cleanup_expired_orders():
                     print(f"Error parsing date for row {row_num}: {e}")
                     continue
 
-        if not expired_rows:
-            messagebox.showinfo("No Action", "No expired order tracking entries found for today")
-            return True
+        return expired_rows, rows_to_delete, wb, order_ws, deleted_ws
+
+    except Exception as e:
+        messagebox.showerror("Error", f"Error during order cleanup: {str(e)}")
+        return [], [], None, None, None
+
+
+def cleanup_zero_quantity_items(wb, deleted_ws):
+    """Move items with 0 remaining quantity for 2+ months to DeletedItems sheet"""
+    try:
+        # Check if inventory sheet exists
+        if INVENTORY_SHEET not in wb.sheetnames:
+            print(f"No {INVENTORY_SHEET} sheet found")
+            return [], []
+
+        inventory_ws = wb[INVENTORY_SHEET]
+
+        # Build header mapping for inventory sheet
+        headers = {}
+        for idx, cell in enumerate(inventory_ws[1]):
+            if cell.value:
+                headers[cell.value.strip()] = idx
+
+        # Check for required columns
+        if "Remaining Quantity" not in headers:
+            print(f"Missing 'Remaining Quantity' column in {INVENTORY_SHEET}")
+            return [], []
+
+        # For items with 0 quantity, we'll check if they've been at 0 for 2 months
+        # Since we don't have a "Last Updated" field, we'll use "Date Opened" as a proxy
+        # or check if the item has been at 0 quantity for what seems like a long time
+
+        # Calculate cutoff date (8 months ago)
+        cutoff_date = datetime.now().date() - timedelta(days=240)
+        today = datetime.now().date()
+
+        # Track what we're moving
+        zero_quantity_rows = []
+        rows_to_delete = []
+
+        # Check each row in inventory
+        for row_num, row in enumerate(inventory_ws.iter_rows(min_row=2), start=2):
+            remaining_qty = row[headers.get("Remaining Quantity", 6)].value
+            date_opened = row[headers.get("Date Opened")].value if "Date Opened" in headers else None
+
+            # Check if quantity is 0
+            if remaining_qty == 0:
+                # If we have a date opened, use that to determine if it's been 2+ months
+                should_delete = False
+
+                if date_opened:
+                    try:
+                        # Handle different date formats
+                        if isinstance(date_opened, str):
+                            opened_date = datetime.strptime(date_opened, "%Y-%m-%d").date()
+                        else:
+                            opened_date = date_opened.date() if hasattr(date_opened, 'date') else date_opened
+
+                        # If opened more than 8 months ago and quantity is 0, assume it's been empty
+                        if opened_date <= cutoff_date:
+                            should_delete = True
+
+                    except (ValueError, TypeError, AttributeError) as e:
+                        print(f"Error parsing date for inventory row {row_num}: {e}")
+                        # If we can't parse the date but quantity is 0, we could still flag it
+                        # For now, let's be conservative and not delete it
+                        continue
+                else:
+                    # If no date opened, we can't determine how long it's been at 0
+                    # You might want to manually review these or add logic here
+                    continue
+
+                if should_delete:
+                    # Map InventoryData to DeletedItems format
+                    barcode = row[headers.get("Barcode ID", 0)].value or f"INV-{row_num}"
+                    chemical_name = row[headers.get("Chemical Name", 1)].value or "Unknown"
+                    lot_number = row[headers.get("Lot Number", 2)].value or "N/A"
+                    bottle_volume = row[headers.get("Bottle Nominal Volume", 5)].value or "N/A"
+                    manufacturer = row[headers.get("Manufacturer", 7)].value or "Unknown"
+                    expiry_date = row[headers.get("Expiry Date", 8)].value or "N/A"
+
+                    row_data = [
+                        barcode,  # Barcode
+                        chemical_name,  # Chemical Name
+                        lot_number,  # Lot Number
+                        bottle_volume,  # Bottle Nominal Value (L)
+                        remaining_qty,  # Remaining Value (should be 0)
+                        manufacturer,  # Manufacturer
+                        expiry_date,  # Expiry Date
+                        today.strftime("%Y-%m-%d"),  # Move Date
+                        "InventoryData",  # Source
+                        "Zero quantity for 8+ months"  # Deletion Reason
+                    ]
+
+                    zero_quantity_rows.append({
+                        'row_num': row_num,
+                        'data': row_data,
+                        'barcode': barcode,
+                        'chemical': chemical_name,
+                        'source': 'InventoryData'
+                    })
+
+                    rows_to_delete.append(row_num)
+
+        return zero_quantity_rows, rows_to_delete
+
+    except Exception as e:
+        print(f"Error during zero quantity cleanup: {str(e)}")
+        return [], []
+
+
+def main():
+    """Main function to run the comprehensive cleanup"""
+    # Hide the main tkinter window
+    root = tk.Tk()
+    root.withdraw()
+
+    try:
+        print("Starting comprehensive inventory cleanup...")
+
+        # Step 1: Check for expired orders
+        expired_orders, order_rows_to_delete, wb, order_ws, deleted_ws = cleanup_expired_orders()
+
+        if wb is None:
+            return
+
+        # Step 2: Check for zero quantity items
+        zero_qty_items, inventory_rows_to_delete = cleanup_zero_quantity_items(wb, deleted_ws)
+
+        # Combine all items for confirmation
+        all_items = expired_orders + zero_qty_items
+
+        if not all_items:
+            messagebox.showinfo("No Action", "No items found that meet deletion criteria")
+            wb.close()
+            return
 
         # Show confirmation dialog
-        confirm_msg = f"Found {len(expired_rows)} expired order tracking entries:\n\n"
-        for item in expired_rows[:5]:  # Show first 5
-            confirm_msg += f"• {item['barcode']}\n"
-        if len(expired_rows) > 5:
-            confirm_msg += f"• ... and {len(expired_rows) - 5} more\n"
+        confirm_msg = f"Found {len(all_items)} items to delete:\n\n"
+
+        if expired_orders:
+            confirm_msg += f" {len(expired_orders)} expired order entries:\n"
+            for item in expired_orders[:3]:
+                confirm_msg += f"  • {item['chemical']}\n"
+            if len(expired_orders) > 3:
+                confirm_msg += f"  • ... and {len(expired_orders) - 3} more\n"
+
+        if zero_qty_items:
+            confirm_msg += f"\n📦 {len(zero_qty_items)} zero quantity items (8+ months):\n"
+            for item in zero_qty_items[:3]:
+                confirm_msg += f"  • {item['chemical']} ({item['barcode']})\n"
+            if len(zero_qty_items) > 3:
+                confirm_msg += f"  • ... and {len(zero_qty_items) - 3} more\n"
+
         confirm_msg += f"\nMove these to '{DELETED_ITEMS_SHEET}' sheet?"
 
         if not messagebox.askyesno("Confirm Cleanup", confirm_msg):
+            wb.close()
             return False
 
-        # Move expired entries to DeletedItems sheet
-        for item in expired_rows:
+        # Move all items to DeletedItems sheet
+        for item in all_items:
             deleted_ws.append(item['data'])
 
         # Delete rows from OrderTracking (in reverse order to maintain indices)
-        for row_num in sorted(rows_to_delete, reverse=True):
-            order_ws.delete_rows(row_num)
+        if order_rows_to_delete:
+            for row_num in sorted(order_rows_to_delete, reverse=True):
+                order_ws.delete_rows(row_num)
+
+        # Delete rows from InventoryData sheet (in reverse order to maintain indices)
+        if inventory_rows_to_delete:
+            inventory_ws = wb[INVENTORY_SHEET]
+            for row_num in sorted(inventory_rows_to_delete, reverse=True):
+                inventory_ws.delete_rows(row_num)
 
         # Save the workbook
         wb.save(EXCEL_FILE)
         wb.close()
 
         # Show success message
-        success_msg = f"✅ Cleanup Complete!\n\n"
-        success_msg += f"Moved {len(expired_rows)} expired entries to '{DELETED_ITEMS_SHEET}'\n"
-        success_msg += f"Removed {len(rows_to_delete)} rows from '{ORDER_TRACKING_SHEET}'"
+        success_msg = f" Cleanup Complete!\n\n"
+        if expired_orders:
+            success_msg += f" Moved {len(expired_orders)} expired order entries\n"
+        if zero_qty_items:
+            success_msg += f" Moved {len(zero_qty_items)} zero quantity items\n"
+        success_msg += f"\nAll items moved to '{DELETED_ITEMS_SHEET}' sheet"
 
         messagebox.showinfo("Success", success_msg)
+        print("Comprehensive cleanup completed successfully!")
         return True
-
-    except Exception as e:
-        messagebox.showerror("Error", f"Error during cleanup: {str(e)}")
-        return False
-
-
-def main():
-    """Main function to run the order cleanup"""
-    # Hide the main tkinter window
-    root = tk.Tk()
-    root.withdraw()
-
-    try:
-        print("Starting order tracking cleanup...")
-        success = cleanup_expired_orders()
-
-        if success:
-            print("Order cleanup completed successfully!")
-        else:
-            print("Order cleanup completed with issues")
 
     except Exception as e:
         print(f"Error in main: {e}")
         messagebox.showerror("System Error", f"An unexpected error occurred: {str(e)}")
+        return False
 
     finally:
         root.destroy()
