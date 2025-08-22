@@ -1,6 +1,6 @@
 # Inventory Scripts
 
-This repository contains all the Python tools and automation required to maintain a clean, streamlined inventory system for R&D chemicals and fluids. The solution is centered around an Excel file called `rnd_chemical_inventory.xlsx`, and the codebase automates inventory updates, stock takiing, barcode generation, reorder notifications, and expired item cleanup.
+This repository contains all the Python tools and automation required to maintain a clean, streamlined inventory system for R&D chemicals and fluids. The solution is centered around an Excel file called `rnd_chemical_inventory.xlsx`, and the codebase automates inventory updates, stock taking, barcode generation, reorder notifications, and expired item cleanup.
 
 ## Repository Contents
 
@@ -9,13 +9,14 @@ There are five primary scripts in this repository:
 ### **combined_inventory_script.py** 
 - Option 1 is to scan barcodes and update the InventoryData sheet in the Excel file
   - Prompts you for chemical details if the barcode is new, or usage amount if it's already in the system
-- Option 2 is to take stock and/or mark empty bottles 
-
-### **weeklycriticalchemicalsfluidai.py**
-- Sends automated Teams alerts every Monday at 9 AM for chemicals that are critically low or expired
+- Option 2 is to take stock and/or mark empty bottles
+- Option 3 is to exit the script
 
 ### **teamsmessage.py**
-- Sends  alerts for any chemicals that need reordering or have upcoming expiry
+- Sends automated Teams alerts on 2 different things: an update on the status of critical chemicals, and a general summary table of anything expired, empty, unusable and things that are on the verge of being
+
+### **reorder.py**
+- Run when you want to check what needs to be ordered/ you already ordered something and want to update inventory (make sure it's excel on computer!)
 - Automatically tracks what needs to be reordered and can remove expired/empty items from the sheet
 - Once you set the date, items move to the OrderTracking sheet and off the main sheets
 
@@ -24,10 +25,7 @@ There are five primary scripts in this repository:
 - Outputs barcode images to the barcode_images folder
 
 ### **deletion_crontab.py**
-- Automatically deletes any items in InventoryData that have either:
-  - Expired more than 30 days ago, or
-  - Have zero remaining quantity for more than 30 days
-- Moves deleted items to a DeletedItems sheet for record-keeping
+- Moves items that have been reordered for their lead time + 1 month off of the ordertracking sheet onto the DeletedItems sheet
 
 ## Excel Workbook Structure
 
@@ -72,12 +70,7 @@ When you run the script, you'll get a pop-up asking you to input:
 
 **For New Items:**
 1. Scan the barcode
-2. Follow the prompts to fill out the necessary fields:
-   - Chemical Name
-   - Lot Number
-   - Bottle Nominal Volume (L)
-   - Manufacturer  
-   - Expiry Date
+2. Follow the prompts to fill out the necessary fields
 3. Press OK to save it
 4. Repeat as necessary
 
@@ -88,51 +81,57 @@ When you run the script, you'll get a pop-up asking you to input:
    - Who opened it
    - How much fluid you used
 3. Press OK to save
-4. Repeat as necessary
+4. Repeat as necessary (now it will only promt you for how much fluid you used)
 
 ### Option 2: Stock Taking
 
-You can do one of two things:
+You can do one of two things but they aren't explicitly separated, so you can do both at the same time if needed:
 
 **Option A - Empty Bottles Only:**
 1. Scan all the empty bottles
 2. Press "finish stock taking"
 3. Mark them all as empty
 4. Close the window, then confirm the choice (another pop-up will appear)
+5. open the excel file and save, then re-upload back to Onedrive
 
 **Option B - Full Stock Check:**
-1. Scan all the stock
-2. Mark any bottles that happen to be empty during scanning
+1. Scan all the stock, click finish stock taking
+2. Mark any bottles that happen to be empty during scanning and close the window by pressing x in the top left
 3. After the pop-up, it will show you a summary
 4. For further detail, open the workbook and check the **StockTakingResults** sheet, which keeps a log of what wasn't scanned
+5. save the excel file and re-upload back to onedrive
 
 ### Finishing Up:
 1. After scanning, press "yes" to terminate the Python window
-2. If it doesn't close properly:
-   - **Mac**: `Cmd + Option + Esc`
-   - **Windows**: `Alt + F4`
-3. **Save and upload**: Open the Excel file, save it (`Cmd+S` on Mac), and upload it back to OneDrive by clicking "Share" to keep it as the most updated copy
+2. On pycharm this works, but on sypder this has trouble so:
+     If it doesn't close properly:
+     - **Mac**: `Cmd + Option + Esc`
+     - **Windows**: `Alt + F4`
+4. **Save and upload**: Open the Excel file, save it (`Cmd+S` on Mac), and upload it back to OneDrive by clicking "Share" to keep it as the most updated copy
 
 ## Scenario 3: Setting Up Teams Alerts and Automatic Deletion (One Computer Setup)
 
 ### Initial Setup:
-1. **Download the automation scripts**: Get `weeklycriticalchemicalsfluidai.py` and `deletion_crontab.py`
+1. **Download the automation scripts**: Get `teamsmessage.py` and `deletion.py`
 2. **Update file paths**: Change the paths for the Excel files at the top of each code file to match where you saved the Excel sheet on your computer
 3. **Set up task scheduling**: Follow the crontab/task scheduler instructions below
 
 ### Scheduling Setup:
 1. **Download timing**: At your most convenient time, download the `rnd_chemical_inventory.xlsx` sheet and save it over your previous copy
 2. **Schedule the scripts**:
-   - Teams messages and deletion: Once a week
-   - Reorder alerts: Daily, every other day, or whatever works best
-3. **File maintenance**: A few times a month, re-upload the file (Share → OneDrive) - download at night and re-upload the cleaned version in the morning to ensure deleted items are removed for everyone
+   - Teams messages and deletion: Once a week, but run deletion before the teams message
+  
+3. **File maintenance**: A few times a month, re-upload the file (Share → OneDrive) - download at night and re-upload the cleaned version in the morning to ensure deleted items are removed for everyone (it won't affect the main pages because the reordering script does that)
 
-## Scenario 4: Reordering
+## Scenario 4: Reordering -> YOU HAVE TO RUN THIS CODE ACTIVELY, NOT IN THE BACKGROUND
 
 The reorder code automatically:
 - Keeps track of what needs to be reordered
 - Removes expired/empty rows from the sheet by moving them to OrderTracking
 - Once you set the reorder date, items move to the OrderTracking sheet and off the main sheets
+- This is the only way to remove items off the main sheet, so make sure you run this code
+- set it to run when you're at work
+- 
 
 ---
 
@@ -160,44 +159,43 @@ If the ReorderUpdates sheet isn't updating properly with the InventoryData sheet
 ### ReorderUpdates Sheet Formulas:
 
 **Column A2 (Chemical Name):**
-```excel
+
 =IF(InventoryData!B2="", "", InventoryData!B2)
-```
+
 
 **Column B2 (Bottle Nominal Volume (L)):**
-```excel
+
 =IF(InventoryData!F2="", "", InventoryData!F2)
-```
+
 
 **Column C2 (Remaining Quantity):**
-```excel
+
 =IF(InventoryData!G2="", "", InventoryData!G2)
-```
+
 
 **Column D2 (Expiry Date):**
-```excel
+
 =IF(InventoryData!I2="", "", InventoryData!I2)
-```
+
 
 **Column E2 (Expiry Alert):**
-```excel
+
 =IFS(ReorderUpdates!D2="Not Written", "Unknown", (ReorderUpdates!D2-TODAY())<0, "Expired",(ReorderUpdates!D2-TODAY())<VLOOKUP(G2,ManufacturerLeadTimes!A:B,2,FALSE), "Order More",(ReorderUpdates!D2-TODAY())>=VLOOKUP(G2,ManufacturerLeadTimes!A:B,2,FALSE), "Sufficient time")
-```
+
 
 **Column F2 (Quantity Alert):**
-```excel
+
 =IFS(
     ReorderUpdates!C2 = 0, "Empty",
     ReorderUpdates!C2< (ReorderUpdates!B2*0.1), "Do Not Use",
     ReorderUpdates!C2 < (ReorderUpdates!B2*0.2), "Order More",
     ReorderUpdates!C2 >= (ReorderUpdates!B2*0.2), "Sufficient Amount"
 )
-```
+
 
 **Column G2 (Manufacturer):**
-```excel
 =IF(InventoryData!H2="", "", InventoryData!H2)
-```
+
 
 ---
 
@@ -210,13 +208,13 @@ If the ReorderUpdates sheet isn't updating properly with the InventoryData sheet
 
 ```bash
 # Weekly critical chemicals alert (Mondays at 3:02 AM)
-2 3 * * 1 /opt/anaconda3/bin/python3 /Users/ishanasahota/Desktop/fluidAI/weeklycriticalchemicalsfluidai.py >> /Users/ishanasahota/Desktop/fluidAI/cronlog.txt 2>&1
+2 3 * * 1 /opt/anaconda3/bin/python3 /Users/ishanasahota/Desktop/fluidAI/teamsmessage.py >> /Users/ishanasahota/Desktop/fluidAI/cronlog.txt 2>&1
 
 # Daily reorder alerts (Daily at 3:02 AM)  
-2 3 * * * /opt/anaconda3/bin/python3 /Users/ishanasahota/Desktop/fluidAI/reorderchemicalsfluidai.py >> /Users/ishanasahota/Desktop/fluidAI/cronlog.txt 2>&1
+2 3 * * * /opt/anaconda3/bin/python3 /Users/ishanasahota/Desktop/fluidAI/reorder.py >> /Users/ishanasahota/Desktop/fluidAI/cronlog.txt 2>&1
 
 # Daily deletion cleanup (Daily at 2:02 AM)
-2 2 * * * /opt/anaconda3/bin/python3 /Users/ishanasahota/Desktop/fluidAI/deletion_crontab.py >> /Users/ishanasahota/Desktop/fluidAI/cronlog.txt 2>&1
+2 2 * * * /opt/anaconda3/bin/python3 /Users/ishanasahota/Desktop/fluidAI/deletion.py >> /Users/ishanasahota/Desktop/fluidAI/cronlog.txt 2>&1
 ```
 
 3. Press `Esc`, then type `:wq` and hit `Enter` to save and exit
@@ -232,10 +230,10 @@ If the ReorderUpdates sheet isn't updating properly with the InventoryData sheet
    - **Program/script**: Your Python executable path
    - **Add arguments**: Full path to your script (e.g., `reorderchemicalsfluidai.py`)
 
-4. **Schedule**:
-   - **Reorder script**: Daily at 9 AM
-   - **Weekly alerts**: Weekly at 9 AM Monday  
-   - **Auto-delete**: Daily at 9 AM
+4. **Schedule (example)**:
+   - **Reorder script**: Bi-Weekly at 9 AM (When you're in work/ only run when you're updating ordering status/ need to remove exmpty/expired rows from the main script)
+   - **Weekly alerts**: Weekly at 9 PM Monday  
+   - **Auto-delete**: Daily at 8 PM
 
 ---
 
@@ -247,16 +245,10 @@ The ReorderUpdates sheet is formula-based, pulling data from InventoryData and c
 - **Expiry Alert**: Based on expiry date vs. manufacturer lead times
 - These alerts are automatically picked up by the reorder and weekly alert scripts
 
-## Deletion Logic
-The `deletion_crontab.py` script performs automated cleanup:
-- Runs daily (e.g., at 2 AM via crontab or Task Scheduler)
-- Only deletes items 30+ days after expiry or emptiness
-- Deleted items are archived in DeletedItems sheet with timestamp
-- ReorderUpdates automatically clears corresponding alert rows when items are deleted from InventoryData
 
 ## OneDrive Best Practices
 
-**⚠️ CRITICAL**: Never edit the Excel file directly on OneDrive.
+**⚠️ CRITICAL**: Never edit ReorderUpdates unless it's to fix the formulas (Hint: if you run the reorderalerts, the code has all the formulas to automatically repopulate it)
 
 **Always follow this workflow**:
 1. Download the most recent version from OneDrive to your desktop
@@ -264,7 +256,7 @@ The `deletion_crontab.py` script performs automated cleanup:
 3. Save the file after making changes
 4. Upload the updated version back to OneDrive using "Share"
 
-**For the person running crontab**: 
+**For the person running crontab/ task scheduler**: 
 - Download the newest version of the Excel file from OneDrive daily for accurate automation
 - Set calendar reminders to download the file at a consistent time
 - A few times per month, re-upload the cleaned version to OneDrive to remove deleted items for all users
