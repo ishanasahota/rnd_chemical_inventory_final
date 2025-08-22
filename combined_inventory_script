@@ -1,0 +1,1408 @@
+#!/usr/bin/env python3
+"""
+Combined Inventory Management System
+Combines take_inventory and take_stock functionality into a single script
+"""
+
+import tkinter as tk
+from tkinter import simpledialog, messagebox, ttk
+from openpyxl import load_workbook, Workbook
+from openpyxl.styles import Font, PatternFill
+import os
+import re
+from datetime import datetime, timedelta
+import pandas as pd
+from openpyxl.utils.dataframe import dataframe_to_rows
+import getpass
+import socket
+
+# === SHARED CONFIGURATION ===
+EXCEL_FILE = '/Users/ishanasahota/Desktop/fluidAI/rnd_inventory_data_2.xlsx'
+INVENTORY_SHEET = "InventoryData"
+STOCK_TAKING_SHEET = "StockTakingResults"
+
+
+# === SHARED CLASSES ===
+class ExcelAuditLogger:
+    def __init__(self, excel_file_path, user_email=None):
+        self.excel_file = excel_file_path
+        self.user_email = user_email or self.get_user_info()
+        self.audit_sheet_name = "Audit_Log"
+        self.ensure_audit_sheet_exists()
+
+    def get_user_info(self):
+        try:
+            username = getpass.getuser()
+            computer_name = socket.gethostname()
+            return f"{username}@{computer_name}"
+        except:
+            return "Unknown_User"
+
+    def ensure_audit_sheet_exists(self):
+        try:
+            wb = load_workbook(self.excel_file)
+            if self.audit_sheet_name not in wb.sheetnames:
+                audit_ws = wb.create_sheet(self.audit_sheet_name)
+                headers = ["Timestamp", "User", "Action Type", "Description",
+                           "Affected Sheet", "Barcode ID", "Details", "Computer"]
+                audit_ws.append(headers)
+
+                header_fill = PatternFill(start_color="366092", end_color="366092", fill_type="solid")
+                header_font = Font(color="FFFFFF", bold=True)
+
+                for cell in audit_ws[1]:
+                    cell.fill = header_fill
+                    cell.font = header_font
+
+                column_widths = [20, 25, 15, 40, 15, 15, 50, 20]
+                for i, width in enumerate(column_widths, 1):
+                    audit_ws.column_dimensions[audit_ws.cell(1, i).column_letter].width = width
+
+                wb.save(self.excel_file)
+                print(f"Created audit log sheet: {self.audit_sheet_name}")
+        except Exception as e:
+            print(f"Warning: Could not create audit sheet: {e}")
+
+    def log_action(self, action_type, description, affected_sheet=None, barcode_id=None, details=None):
+        try:
+            wb = load_workbook(self.excel_file)
+            if self.audit_sheet_name in wb.sheetnames:
+                audit_ws = wb[self.audit_sheet_name]
+            else:
+                self.ensure_audit_sheet_exists()
+                audit_ws = wb[self.audit_sheet_name]
+
+            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            computer_name = socket.gethostname()
+
+            new_row = [
+                timestamp, self.user_email, action_type, description,
+                affected_sheet or "N/A", barcode_id or "N/A",
+                details or "N/A", computer_name
+            ]
+
+            audit_ws.append(new_row)
+            wb.save(self.excel_file)
+            print(f"Audit logged: {action_type} - {description}")
+        except Exception as e:
+            print(f"Warning: Could not log to audit sheet: {e}")
+
+
+# === SHARED UTILITY FUNCTIONS ===
+def get_user_email():
+    root = tk.Tk()
+    root.withdraw()
+    email = simpledialog.askstring(
+        "User Identification",
+        "Please enter your email address for audit logging:"
+    )
+    root.destroy()
+    if not email or '@' not in email:
+        return getpass.getuser() + "@company.com"
+    return email.strip()
+
+
+def validate_barcode_format(barcode_id):
+    if not barcode_id:
+        return False, "Barcode cannot be empty"
+    barcode_id = barcode_id.strip().upper()
+    if len(barcode_id) != 8:
+        return False, f"Barcode must be 8 characters (got {len(barcode_id)})"
+    return True, barcode_id
+
+
+def validate_date_format(date_str):
+    if not date_str:
+        return None
+    date_patterns = [
+        (r'^\d{4}-\d{2}-\d{2}$', '%Y-%m-%d'),
+        (r'^(\d{1,2})/(\d{1,2})/(\d{4})$', '%m/%d/%Y'),
+        (r'^(\d{1,2})/(\d{1,2})/(\d{2})$', '%m/%d/%y'),
+        (r'^(\d{4})/(\d{1,2})/(\d{1,2})$', '%Y/%m/%d'),
+    ]
+    for pattern, date_format in date_patterns:
+        if re.match(pattern, date_str.strip()):
+            try:
+                parsed_date = datetime.strptime(date_str.strip(), date_format)
+                return parsed_date.strftime('%Y-%m-%d')
+            except ValueError:
+                continue
+    return None
+
+
+def initialize_excel_file():
+    if not os.path.exists(EXCEL_FILE):
+        wb = Workbook()
+        ws = wb.active
+        ws.title = INVENTORY_SHEET
+        ws.append([
+            "Barcode ID", "Chemical Name", "Lot Number", "Units", "State",
+            "Bottle Nominal Volume", "Remaining Quantity", "Manufacturer",
+            "Expiry Date", "Date Opened", "Who Opened"
+        ])
+        wb.save(EXCEL_FILE)
+        return
+
+    wb = load_workbook(EXCEL_FILE)
+    if INVENTORY_SHEET not in wb.sheetnames:
+        ws = wb.create_sheet(INVENTORY_SHEET)
+        ws.append([
+            "Barcode ID", "Chemical Name", "Lot Number", "Units", "State",
+            "Bottle Nominal Volume", "Remaining Quantity", "Manufacturer",
+            "Expiry Date", "Date Opened", "Who Opened"
+        ])
+        wb.save(EXCEL_FILE)
+
+
+# === INVENTORY FUNCTIONS ===
+def find_barcode_row(ws, barcode_id, headers):
+    id_col = headers["Barcode ID"]
+    barcode_id_upper = barcode_id.upper()
+    for row_num, row in enumerate(ws.iter_rows(min_row=2), start=2):
+        if row[id_col].value:
+            existing_barcode = str(row[id_col].value).strip().upper()
+            if existing_barcode == barcode_id_upper:
+                return row_num, row
+    return None, None
+
+
+def find_next_empty_row(ws, headers):
+    id_col = headers["Barcode ID"]
+    last_filled_row = 1
+    for row_num, row in enumerate(ws.iter_rows(min_row=2), start=2):
+        if row[id_col].value and str(row[id_col].value).strip():
+            last_filled_row = row_num
+    return last_filled_row + 1
+
+
+def get_physical_state():
+    root = tk.Tk()
+    root.withdraw()
+    states = ["Liquid", "Solid", "Gas", "Powder", "Solution", "Other"]
+    choice = None
+
+    def make_choice(selected):
+        nonlocal choice
+        choice = selected
+        dialog.destroy()
+
+    dialog = tk.Toplevel(root)
+    dialog.title("Physical State")
+    dialog.geometry("250x300")
+    dialog.grab_set()
+
+    tk.Label(dialog, text="Select Physical State:", font=('Arial', 12, 'bold')).pack(pady=10)
+    for state in states:
+        btn = tk.Button(dialog, text=state, width=15, command=lambda s=state: make_choice(s))
+        btn.pack(pady=2)
+
+    dialog.wait_window()
+    root.destroy()
+    return choice
+
+
+def get_units():
+    root = tk.Tk()
+    root.withdraw()
+    common_units = [
+        "Liters (L)", "Milliliters (mL)", "Kilograms (kg)", "Grams (g)",
+        "Bottles", "Containers", "Packages", "Gallons", "Pounds (lbs)",
+        "Cubic Meters (m³)", "Cylinders", "Tanks", "Units"
+    ]
+    choice = None
+
+    def make_choice(selected):
+        nonlocal choice
+        choice = selected
+        dialog.destroy()
+
+    dialog = tk.Toplevel(root)
+    dialog.title("Units")
+    dialog.geometry("300x500")
+    dialog.grab_set()
+
+    tk.Label(dialog, text="Select Units:", font=('Arial', 12, 'bold')).pack(pady=10)
+
+    canvas = tk.Canvas(dialog, width=280, height=350)
+    scrollbar = tk.Scrollbar(dialog, orient="vertical", command=canvas.yview)
+    scrollable_frame = tk.Frame(canvas)
+
+    scrollable_frame.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+    canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+    canvas.configure(yscrollcommand=scrollbar.set)
+
+    for unit in common_units:
+        btn = tk.Button(scrollable_frame, text=unit, width=25, command=lambda u=unit: make_choice(u))
+        btn.pack(pady=2)
+
+    canvas.pack(side="left", fill="both", expand=True)
+    scrollbar.pack(side="right", fill="y")
+
+    bottom_frame = tk.Frame(dialog)
+    bottom_frame.pack(side="bottom", pady=10)
+    tk.Label(bottom_frame, text="Or enter custom unit:", font=('Arial', 10)).pack()
+    entry = tk.Entry(bottom_frame, width=20)
+    entry.pack(pady=2)
+
+    def custom_unit():
+        custom = entry.get().strip()
+        if custom:
+            make_choice(custom)
+        else:
+            messagebox.showwarning("Warning", "Please enter a unit or select from list")
+
+    tk.Button(bottom_frame, text="Use Custom Unit", command=custom_unit).pack(pady=5)
+    dialog.wait_window()
+    root.destroy()
+    return choice
+
+
+def prompt_for_info(barcode_id):
+    try:
+        root = tk.Tk()
+        root.withdraw()
+
+        messagebox.showinfo("Data Entry",
+                            "Please enter information for the new chemical.\n" +
+                            "Expected formats:\n" +
+                            "• Dates: YYYY-MM-DD (ISO format preferred)\n" +
+                            "• Numbers: Use decimal point (e.g., 1.5)\n" +
+                            "• All fields are required")
+
+        chem_name = simpledialog.askstring("Input", f"Chemical Name for barcode {barcode_id}:\n(Required)")
+        if not chem_name or not chem_name.strip():
+            messagebox.showwarning("Warning", "Chemical name is required")
+            return None
+        chem_name = chem_name.strip()
+
+        lot = simpledialog.askstring("Input", "Lot Number:\n(Required)")
+        if not lot or not lot.strip():
+            messagebox.showwarning("Warning", "Lot number is required")
+            return None
+        lot = lot.strip()
+
+        units = get_units()
+        if not units:
+            messagebox.showinfo("Cancelled", "Units selection cancelled")
+            return None
+
+        physical_state = get_physical_state()
+        if not physical_state:
+            messagebox.showinfo("Cancelled", "Physical state selection cancelled")
+            return None
+
+        volume_prompt = f"Bottle Nominal Volume:\n(Numbers only - units stored separately as '{units}')"
+        nominal_volume = simpledialog.askfloat("Input", volume_prompt)
+        if nominal_volume is None or nominal_volume <= 0:
+            messagebox.showwarning("Warning", "Valid nominal volume is required (must be > 0)")
+            return None
+
+        manufacturer = simpledialog.askstring("Input", "Manufacturer:\n(Required)")
+        if not manufacturer or not manufacturer.strip():
+            messagebox.showwarning("Warning", "Manufacturer is required")
+            return None
+        manufacturer = manufacturer.strip()
+
+        while True:
+            expiry = simpledialog.askstring("Input",
+                                            "Expiry Date:\n" +
+                                            "Preferred format: YYYY-MM-DD\n" +
+                                            "Also accepts: MM/DD/YYYY, MM/DD/YY, YYYY/MM/DD")
+            if not expiry:
+                messagebox.showwarning("Warning", "Expiry date is required")
+                continue
+
+            validated_expiry = validate_date_format(expiry)
+            if validated_expiry:
+                expiry = validated_expiry
+                break
+            else:
+                retry = messagebox.askyesno("Invalid Date",
+                                            f"'{expiry}' is not a valid date format.\n" +
+                                            "Expected: YYYY-MM-DD (or MM/DD/YYYY, etc.)\n\n" +
+                                            "Try again?")
+                if not retry:
+                    return None
+
+        summary = (
+                f"Please verify the information entered:\n\n" +
+                f"Barcode ID: {barcode_id}\n" +
+                f"Chemical Name: {chem_name}\n" +
+                f"Lot Number: {lot}\n" +
+                f"Units: {units}\n" +
+                f"State: {physical_state}\n" +
+                f"Nominal Volume: {nominal_volume}\n" +
+                f"Manufacturer: {manufacturer}\n" +
+                f"Expiry Date: {expiry}\n\n" +
+                f"Is this information correct?"
+        )
+
+        if not messagebox.askyesno("Verify Information", summary):
+            return None
+
+        return {
+            "barcode_id": barcode_id,
+            "chemical_name": chem_name,
+            "lot": lot,
+            "units": units,
+            "state": physical_state,
+            "nominal_volume": nominal_volume,
+            "remaining": nominal_volume,
+            "manufacturer": manufacturer,
+            "expiry": expiry,
+            "date_opened": "",
+            "who_opened": ""
+        }
+
+    except Exception as e:
+        messagebox.showerror("Error", f"Error getting input: {str(e)}")
+        return None
+
+
+def handle_existing_barcode_with_audit(ws, row_num, row, headers, barcode_id, audit_logger, old_qty):
+    qty_col = headers["Remaining Quantity"]
+    units_col = headers["Units"]
+    date_opened_col = headers["Date Opened"]
+    who_opened_col = headers["Who Opened"]
+
+    try:
+        current_qty = float(row[qty_col].value) if row[qty_col].value else 0
+        units = row[units_col].value or "units"
+    except (ValueError, TypeError):
+        current_qty = 0
+        units = "units"
+
+    date_opened = row[date_opened_col].value if date_opened_col else None
+    who_opened = row[who_opened_col].value if who_opened_col else None
+
+    if not date_opened:
+        messagebox.showinfo("First Opening",
+                            f"This appears to be the first time opening this container.\nBarcode: {barcode_id}")
+
+        today = datetime.now().strftime('%Y-%m-%d')
+        opened_date = simpledialog.askstring("Date Opened", f"Date opened (YYYY-MM-DD):\n[Default: today ({today})]")
+
+        if not opened_date:
+            opened_date = today
+        else:
+            validated_date = validate_date_format(opened_date)
+            if not validated_date:
+                messagebox.showwarning("Invalid Date", "Using today's date instead")
+                opened_date = today
+            else:
+                opened_date = validated_date
+
+        opened_by = simpledialog.askstring("Opened By", "Who opened this container?\n(Enter name or initials)")
+        if not opened_by:
+            opened_by = "Unknown"
+
+        row[date_opened_col].value = opened_date
+        row[who_opened_col].value = opened_by.strip()
+        audit_logger.log_action("OPEN", f"Container first opened", INVENTORY_SHEET, barcode_id,
+                                f"Opened on {opened_date} by {opened_by.strip()}")
+
+    remaining = simpledialog.askfloat("Usage Update",
+                                      f"Barcode: {barcode_id}\nCurrent quantity: {current_qty} {units}\n"
+                                      f"How much is remaining?\n(Enter 0 if empty)")
+
+    if remaining is not None and remaining >= 0:
+        old_remaining = current_qty
+        row[qty_col].value = remaining
+
+        change_details = f"Quantity changed from {old_remaining} to {remaining} {units}"
+        if remaining == 0:
+            audit_logger.log_action("EMPTY", f"Container marked as empty", INVENTORY_SHEET, barcode_id, change_details)
+        else:
+            audit_logger.log_action("UPDATE", f"Quantity updated", INVENTORY_SHEET, barcode_id, change_details)
+
+        status = "EMPTY" if remaining == 0 else f"{remaining} {units} remaining"
+        messagebox.showinfo("Updated", f"Barcode: {barcode_id}\nStatus: {status}\n"
+                                       f"Opened: {row[date_opened_col].value} by {row[who_opened_col].value}")
+        return True
+    else:
+        audit_logger.log_action("CANCEL", f"Update cancelled for existing barcode", INVENTORY_SHEET, barcode_id)
+        return False
+
+
+def add_new_barcode_with_audit(ws, barcode_id, headers, audit_logger):
+    messagebox.showinfo("New Barcode", f"Barcode {barcode_id} not found in inventory.\nAdding as new chemical...")
+
+    info = prompt_for_info(barcode_id)
+    if info is None:
+        audit_logger.log_action("CANCEL", f"New barcode entry cancelled", INVENTORY_SHEET, barcode_id)
+        messagebox.showinfo("Cancelled", "Entry cancelled, returning to scan screen.")
+        return False
+
+    new_row = [
+        info["barcode_id"], info["chemical_name"], info["lot"], info["units"], info["state"],
+        info["nominal_volume"], info["remaining"], info["manufacturer"], info["expiry"],
+        info["date_opened"], info["who_opened"]
+    ]
+
+    next_row = find_next_empty_row(ws, headers)
+    for col_idx, value in enumerate(new_row, start=1):
+        ws.cell(row=next_row, column=col_idx, value=value)
+
+    details = f"Added: {info['chemical_name']}, {info['nominal_volume']} {info['units']}, Exp: {info['expiry']}, Mfg: {info['manufacturer']}, Added to row: {next_row}"
+    audit_logger.log_action("ADD", f"New chemical added to inventory", INVENTORY_SHEET, barcode_id, details)
+
+    summary = (f"New chemical added successfully!\n\n"
+               f"Barcode: {info['barcode_id']}\n"
+               f"Chemical: {info['chemical_name']}\n"
+               f"Amount: {info['nominal_volume']} {info['units']}\n"
+               f"State: {info['state']}\n"
+               f"Expiry: {info['expiry']}\n"
+               f"Manufacturer: {info['manufacturer']}\n"
+               f"Added to row: {next_row}")
+    messagebox.showinfo("Success", summary)
+    return True
+
+
+def update_inventory_with_audit(barcode_id, user_email=None, audit_logger=None):
+    if not audit_logger:
+        if not user_email:
+            user_email = get_user_email()
+        audit_logger = ExcelAuditLogger(EXCEL_FILE, user_email)
+
+    try:
+        is_valid, normalized_barcode = validate_barcode_format(barcode_id)
+        if not is_valid:
+            audit_logger.log_action("ERROR", f"Invalid barcode format: {barcode_id}",
+                                    INVENTORY_SHEET, barcode_id, f"Validation error: {normalized_barcode}")
+            messagebox.showerror("Invalid Barcode", normalized_barcode)
+            return
+
+        barcode_id = normalized_barcode
+        wb = load_workbook(EXCEL_FILE)
+        ws = wb[INVENTORY_SHEET]
+
+        headers = {}
+        for idx, cell in enumerate(ws[1]):
+            if cell.value:
+                headers[cell.value] = idx
+
+        required_columns = ["Barcode ID", "Remaining Quantity", "Date Opened", "Who Opened", "Units"]
+        missing_columns = [col for col in required_columns if col not in headers]
+        if missing_columns:
+            audit_logger.log_action("ERROR", "Missing required columns",
+                                    INVENTORY_SHEET, barcode_id, f"Missing: {', '.join(missing_columns)}")
+            messagebox.showerror("Error", f"Missing columns: {', '.join(missing_columns)}")
+            return
+
+        row_num, row = find_barcode_row(ws, barcode_id, headers)
+
+        if row is not None:
+            id_col = headers["Barcode ID"]
+            old_barcode = row[id_col].value
+            row[id_col].value = barcode_id
+
+            if str(old_barcode).upper() != barcode_id:
+                audit_logger.log_action("FORMAT", f"Barcode format normalized",
+                                        INVENTORY_SHEET, barcode_id,
+                                        f"Changed from '{old_barcode}' to '{barcode_id}'")
+
+            qty_col = headers["Remaining Quantity"]
+            old_qty = float(row[qty_col].value) if row[qty_col].value else 0
+
+            if handle_existing_barcode_with_audit(ws, row_num, row, headers, barcode_id, audit_logger, old_qty):
+                wb.save(EXCEL_FILE)
+        else:
+            if add_new_barcode_with_audit(ws, barcode_id, headers, audit_logger):
+                wb.save(EXCEL_FILE)
+
+    except Exception as e:
+        error_msg = f"System error in update_inventory: {str(e)}"
+        audit_logger.log_action("ERROR", f"System error in update_inventory",
+                                INVENTORY_SHEET, barcode_id, error_msg)
+        messagebox.showerror("Error", f"Error updating inventory: {str(e)}")
+
+
+def run_inventory_process():
+    """Run the inventory update process"""
+    user_email = get_user_email()
+    audit_logger = ExcelAuditLogger(EXCEL_FILE, user_email)
+    audit_logger.log_action("SYSTEM", "Inventory system started", INVENTORY_SHEET)
+
+    root = tk.Tk()
+    root.withdraw()
+    root.attributes('-topmost', True)
+
+    messagebox.showinfo("Inventory System",
+                        f"Chemical Inventory Scanner\n"
+                        f"User: {user_email}\n\n"
+                        "• Single user system (one person at a time)\n"
+                        "• All actions will be logged for audit\n"
+                        "• Dates stored in ISO format (YYYY-MM-DD)\n"
+                        "• Barcodes normalized to uppercase for consistency\n"
+                        "• New entries added to the bottom of the table\n\n"
+                        "Ready to scan!")
+
+    try:
+        while True:
+            barcode_id = simpledialog.askstring("Barcode Scanner",
+                                                "Scan barcode or enter ID manually:\n"
+                                                "(Leave empty and click OK to exit)")
+
+            if not barcode_id:
+                if messagebox.askyesno("Quit", "Exit scanning application?"):
+                    audit_logger.log_action("SYSTEM", "Inventory system shutdown", INVENTORY_SHEET)
+                    break
+                continue
+
+            barcode_id = barcode_id.strip()
+            if barcode_id:
+                update_inventory_with_audit(barcode_id, user_email, audit_logger)
+
+    except Exception as e:
+        audit_logger.log_action("ERROR", f"System error in scan_loop", INVENTORY_SHEET, details=f"Error: {str(e)}")
+        messagebox.showerror("Error", f"Unexpected error: {str(e)}")
+    finally:
+        root.destroy()
+
+
+# === STOCK TAKING FUNCTIONS ===
+def load_inventory_data(audit_logger):
+    try:
+        audit_logger.log_action("STOCK_LOAD", "Loading inventory data for stock taking", INVENTORY_SHEET)
+
+        if not os.path.exists(EXCEL_FILE):
+            error_msg = f"Inventory file {EXCEL_FILE} not found"
+            audit_logger.log_action("ERROR", "Inventory file not found", INVENTORY_SHEET, details=error_msg)
+            messagebox.showerror("Error", error_msg)
+            return None
+
+        wb = load_workbook(EXCEL_FILE, data_only=True)
+        if INVENTORY_SHEET not in wb.sheetnames:
+            error_msg = f"Sheet {INVENTORY_SHEET} not found. Available sheets: {wb.sheetnames}"
+            audit_logger.log_action("ERROR", "Inventory sheet not found", INVENTORY_SHEET, details=error_msg)
+            messagebox.showerror("Error", error_msg)
+            return None
+
+        ws = wb[INVENTORY_SHEET]
+
+        headers = {}
+        for idx, cell in enumerate(ws[1]):
+            if cell.value:
+                headers[cell.value] = idx
+
+        if "Barcode ID" not in headers:
+            error_msg = f"Barcode ID column not found. Available columns: {list(headers.keys())}"
+            audit_logger.log_action("ERROR", "Barcode ID column missing", INVENTORY_SHEET, details=error_msg)
+            messagebox.showerror("Error", error_msg)
+            return None
+
+        inventory = {}
+        barcode_col_idx = headers["Barcode ID"]
+
+        for row_num in range(2, ws.max_row + 1):
+            barcode_cell = ws.cell(row=row_num, column=barcode_col_idx + 1)
+            barcode_value = barcode_cell.value
+
+            if barcode_value is not None:
+                original_barcode = str(barcode_value).strip()
+                if not original_barcode:
+                    continue
+
+                normalized_barcode = original_barcode.lower()
+
+                chemical_name = ws.cell(row=row_num, column=headers.get("Chemical Name", 1) + 1).value or "Unknown"
+                lot_number = ws.cell(row=row_num, column=headers.get("Lot Number", 2) + 1).value or "Unknown"
+                units = ws.cell(row=row_num, column=headers.get("Units", 3) + 1).value or "Unknown"
+                state = ws.cell(row=row_num, column=headers.get("State", 4) + 1).value or "Unknown"
+                nominal_volume = ws.cell(row=row_num, column=headers.get("Bottle Nominal Volume", 5) + 1).value or 0
+                remaining_quantity = ws.cell(row=row_num, column=headers.get("Remaining Quantity", 6) + 1).value or 0
+                manufacturer = ws.cell(row=row_num, column=headers.get("Manufacturer", 7) + 1).value or "Unknown"
+                expiry_date = ws.cell(row=row_num, column=headers.get("Expiry Date", 8) + 1).value or "Unknown"
+                date_opened = ws.cell(row=row_num, column=headers.get("Date Opened", 9) + 1).value or ""
+                who_opened = ws.cell(row=row_num, column=headers.get("Who Opened", 10) + 1).value or ""
+
+                inventory[normalized_barcode] = {
+                    "row_num": row_num,
+                    "chemical_name": chemical_name,
+                    "lot_number": lot_number,
+                    "units": units,
+                    "state": state,
+                    "nominal_volume": nominal_volume,
+                    "remaining_quantity": remaining_quantity,
+                    "manufacturer": manufacturer,
+                    "expiry_date": expiry_date,
+                    "date_opened": date_opened,
+                    "who_opened": who_opened
+                }
+
+        wb.close()
+        audit_logger.log_action("STOCK_LOAD", f"Successfully loaded inventory data", INVENTORY_SHEET,
+                                details=f"Loaded {len(inventory)} items")
+        return inventory
+
+    except Exception as e:
+        audit_logger.log_action("ERROR", "Failed to load inventory data", INVENTORY_SHEET, details=str(e))
+        messagebox.showerror("Error", f"Error loading inventory: {str(e)}")
+        return None
+
+
+class StockTakingScanner:
+    def __init__(self, audit_logger):
+        self.audit_logger = audit_logger
+        self.root = tk.Tk()
+        self.root.title("Stock Taking Scanner")
+        self.root.geometry("600x500")
+        self.root.attributes('-topmost', True)
+        self.scanned_items = []
+        self.scanned_set = set()
+        self.scanning_active = True
+        self.completed_successfully = False  # Add this flag
+        self.audit_logger.log_action("STOCK_SCAN", "Stock taking scanner started", STOCK_TAKING_SHEET)
+        self.setup_ui()
+
+    def setup_ui(self):
+        title_label = tk.Label(self.root, text="STOCK TAKING SCANNER", font=('Arial', 16, 'bold'), fg='blue')
+        title_label.pack(pady=10)
+
+        instructions = tk.Text(self.root, height=6, width=70, wrap=tk.WORD)
+        instructions.insert('1.0', """Instructions:
+• Click in the barcode field below and scan your barcode
+• The barcode should appear automatically when scanned
+• Press Enter or click 'Add' to record the barcode
+• Continue scanning until all items are done
+• Click 'Finish Stock Taking' when complete
+
+Note: Make sure the barcode field is focused (clicked) before scanning!""")
+        instructions.config(state=tk.DISABLED)
+        instructions.pack(pady=5, padx=10)
+
+        entry_frame = tk.Frame(self.root)
+        entry_frame.pack(pady=10)
+
+        tk.Label(entry_frame, text="Scan Barcode:", font=('Arial', 12)).pack(side=tk.LEFT)
+
+        self.barcode_var = tk.StringVar()
+        self.barcode_entry = tk.Entry(entry_frame, textvariable=self.barcode_var,
+                                      font=('Arial', 14), width=15)
+        self.barcode_entry.pack(side=tk.LEFT, padx=5)
+        # SIMPLIFIED: Only bind Enter key, remove automatic processing
+        self.barcode_entry.bind('<Return>', self.add_barcode)
+        self.barcode_entry.focus_set()
+
+        self.add_btn = tk.Button(entry_frame, text="Add", command=self.add_barcode,
+                                 bg='lightgreen', font=('Arial', 10))
+        self.add_btn.pack(side=tk.LEFT, padx=5)
+
+        self.stats_label = tk.Label(self.root, text="Scanned: 0 items",
+                                    font=('Arial', 12), fg='green')
+        self.stats_label.pack(pady=5)
+
+        recent_frame = tk.Frame(self.root)
+        recent_frame.pack(pady=10, fill=tk.BOTH, expand=True, padx=10)
+
+        tk.Label(recent_frame, text="Recently Scanned:", font=('Arial', 10, 'bold')).pack(anchor='w')
+
+        self.recent_listbox = tk.Listbox(recent_frame, height=8, font=('Arial', 10))
+        self.recent_listbox.pack(fill=tk.BOTH, expand=True)
+
+        scrollbar = tk.Scrollbar(recent_frame, orient=tk.VERTICAL, command=self.recent_listbox.yview)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        self.recent_listbox.config(yscrollcommand=scrollbar.set)
+
+        button_frame = tk.Frame(self.root)
+        button_frame.pack(pady=10)
+
+        self.clear_last_btn = tk.Button(button_frame, text="Clear Last", command=self.clear_last,
+                                        bg='yellow')
+        self.clear_last_btn.pack(side=tk.LEFT, padx=5)
+
+        self.clear_all_btn = tk.Button(button_frame, text="Clear All", command=self.clear_all,
+                                       bg='orange')
+        self.clear_all_btn.pack(side=tk.LEFT, padx=5)
+
+        self.finish_btn = tk.Button(button_frame, text="Finish Stock Taking", command=self.finish_scanning,
+                                    bg='lightblue', font=('Arial', 10, 'bold'))
+        self.finish_btn.pack(side=tk.LEFT, padx=5)
+
+        # Simplified focus maintenance
+        self.root.after(100, self.maintain_focus)
+
+    def maintain_focus(self):
+        if self.scanning_active:
+            try:
+                if self.root.winfo_exists() and self.root.focus_get() != self.barcode_entry:
+                    self.barcode_entry.focus_set()
+
+                # Schedule the next focus check
+                if self.scanning_active:
+                    self.root.after(1000, self.maintain_focus)
+            except Exception as e:
+                print(f"Focus maintenance error: {e}")
+                # Stop focus maintenance if there are errors
+
+    def add_barcode(self, event=None):
+        print("Add barcode called")  # Debug print
+
+        try:
+            # Try getting the value directly from the entry widget instead of StringVar
+            barcode_id = self.barcode_entry.get().strip()
+            print(f"Barcode from entry widget: '{barcode_id}'")  # Debug print
+
+            # Also check the StringVar for comparison
+            barcode_from_var = self.barcode_var.get().strip()
+            print(f"Barcode from StringVar: '{barcode_from_var}'")  # Debug print
+
+            if not barcode_id:
+                print("No barcode entered")  # Debug print
+                return
+
+            # SIMPLIFIED: Basic validation instead of calling external function
+            if len(barcode_id) < 3:  # Very basic check
+                print("Barcode too short")  # Debug print
+                messagebox.showwarning("Invalid Barcode", "Barcode too short")
+                self.barcode_entry.delete(0, tk.END)  # Clear entry widget directly
+                self.barcode_entry.focus_set()
+                return
+
+            if barcode_id in self.scanned_set:
+                print("Duplicate barcode")  # Debug print
+                messagebox.showwarning("Duplicate", f"Barcode {barcode_id} already scanned")
+                self.barcode_entry.delete(0, tk.END)  # Clear entry widget directly
+                self.barcode_entry.focus_set()
+                return
+
+            print(f"Adding barcode: {barcode_id}")  # Debug print
+
+            # Add the item
+            self.scanned_items.append(barcode_id)
+            self.scanned_set.add(barcode_id)
+
+            print(f"Items list now has {len(self.scanned_items)} items")  # Debug print
+
+            # Update the listbox
+            list_entry = f"{len(self.scanned_items):3d}. {barcode_id}"
+            print(f"Adding to listbox: {list_entry}")  # Debug print
+            self.recent_listbox.insert(tk.END, list_entry)
+            self.recent_listbox.see(tk.END)
+
+            # Update stats label
+            stats_text = f"Scanned: {len(self.scanned_items)} items"
+            print(f"Updating stats: {stats_text}")  # Debug print
+            self.stats_label.config(text=stats_text)
+
+            # Clear and refocus - use both methods
+            self.barcode_entry.delete(0, tk.END)  # Clear entry widget directly
+            self.barcode_var.set("")  # Also clear StringVar
+            self.barcode_entry.focus_set()
+
+            print("Barcode added successfully")  # Debug print
+
+            # Progress milestone check (simplified - no audit logger for now)
+            if len(self.scanned_items) % 10 == 0:
+                self.stats_label.config(text=f"Scanned: {len(self.scanned_items)} items - Great progress!", fg='blue')
+                self.root.after(2000, lambda: self.stats_label.config(fg='green'))
+
+        except Exception as e:
+            print(f"ERROR in add_barcode: {e}")  # Debug print
+            import traceback
+            traceback.print_exc()  # Full error traceback
+            messagebox.showerror("Error", f"Error processing barcode: {str(e)}")
+            return
+
+    def disable_buttons(self):
+        """Disable all buttons during processing"""
+        try:
+            self.add_btn.config(state='disabled')
+            self.clear_last_btn.config(state='disabled')
+            self.clear_all_btn.config(state='disabled')
+            self.finish_btn.config(state='disabled')
+        except:
+            pass
+
+    def enable_buttons(self):
+        """Re-enable all buttons after processing"""
+        try:
+            self.add_btn.config(state='normal')
+            self.clear_last_btn.config(state='normal')
+            self.clear_all_btn.config(state='normal')
+            self.finish_btn.config(state='normal')
+        except:
+            pass
+
+    def clear_last(self):
+        if not self.scanned_items:
+            messagebox.showinfo("No Items", "No items to remove")
+            return
+
+        last_item = self.scanned_items.pop()
+        self.scanned_set.discard(last_item)
+        self.recent_listbox.delete(tk.END)
+        self.stats_label.config(text=f"Scanned: {len(self.scanned_items)} items")
+        messagebox.showinfo("Removed", f"Removed last item: {last_item}")
+        self.barcode_entry.focus_set()
+
+    def clear_all(self):
+        if not self.scanned_items:
+            messagebox.showinfo("No Items", "No items to clear")
+            return
+
+        if messagebox.askyesno("Clear All", f"Clear all {len(self.scanned_items)} scanned items?"):
+            cleared_count = len(self.scanned_items)
+            self.audit_logger.log_action("STOCK_SCAN_CLEAR", f"All scanned items cleared",
+                                         STOCK_TAKING_SHEET, details=f"Cleared {cleared_count} items")
+            self.scanned_items.clear()
+            self.scanned_set.clear()
+            self.recent_listbox.delete(0, tk.END)
+            self.stats_label.config(text="Scanned: 0 items")
+            self.barcode_entry.focus_set()
+
+    def finish_scanning(self):
+        print(f"DEBUG: Finish scanning called, have {len(self.scanned_items)} items")
+        print(f"DEBUG: Scanned items: {self.scanned_items}")
+
+        if not self.scanned_items:
+            if messagebox.askyesno("No Items", "No items scanned. Exit stock taking?"):
+                self.audit_logger.log_action("STOCK_SCAN_END", f"Stock taking scanner ended - no items",
+                                             STOCK_TAKING_SHEET, details="User exited with no scanned items")
+                self.scanning_active = False
+                self.completed_successfully = False
+                self.root.quit()  # Changed from destroy() to quit()
+                return
+        else:
+            result = messagebox.askyesno("Finish Stock Taking",
+                                         f"Scanned {len(self.scanned_items)} items.\n" +
+                                         f"Finish stock taking and generate report?")
+            print(f"DEBUG: User response to finish dialog: {result}")
+
+            if result:
+                self.audit_logger.log_action("STOCK_SCAN_END", f"Stock taking scanner completed",
+                                             STOCK_TAKING_SHEET,
+                                             details=f"Total scanned: {len(self.scanned_items)} barcodes")
+                self.scanning_active = False
+                self.completed_successfully = True
+                print(f"DEBUG: About to quit window, will return: {self.scanned_items}")
+                self.root.quit()  # Changed from destroy() to quit()
+                return
+            # If user says no, don't quit the window
+
+    def run(self):
+        try:
+            print("DEBUG: Starting scanner mainloop")
+            self.root.mainloop()
+            print(f"DEBUG: Scanner mainloop ended")
+            print(f"DEBUG: completed_successfully: {self.completed_successfully}")
+            print(
+                f"DEBUG: Will return {len(self.scanned_items) if self.scanned_items else 0} items: {self.scanned_items}")
+
+            # Clean up the window
+            try:
+                self.root.destroy()
+            except:
+                pass
+
+            # Return scanned items only if completed successfully and has items
+            if self.completed_successfully and self.scanned_items:
+                print(f"DEBUG: Returning {len(self.scanned_items)} scanned items")
+                return self.scanned_items
+            else:
+                print("DEBUG: Returning None")
+                return None
+
+        except Exception as e:
+            self.audit_logger.log_action("ERROR", f"Scanner error", STOCK_TAKING_SHEET, details=str(e))
+            messagebox.showerror("Error", f"Scanner error: {str(e)}")
+            print(f"DEBUG: Scanner error: {e}")
+            return None
+
+
+def scan_stock_taking(audit_logger):
+    root = tk.Tk()
+    root.withdraw()
+    root.attributes('-topmost', True)
+
+    audit_logger.log_action("STOCK_START", "Stock taking mode initiated", STOCK_TAKING_SHEET)
+
+    messagebox.showinfo("Stock Taking Mode",
+                        "STOCK TAKING MODE\n\n" +
+                        "Instructions:\n" +
+                        "• Scan ALL items physically present\n" +
+                        "• Just scan - don't enter any data\n" +
+                        "• When finished, click 'Finish Stock Taking'\n\n" +
+                        "This will compare what you scanned vs. what's recorded.")
+
+    root.destroy()
+    scanner = StockTakingScanner(audit_logger)
+    return scanner.run()
+
+
+def mark_empty_bottles(scanned_items, inventory, audit_logger):
+    if not scanned_items:
+        return []
+
+    audit_logger.log_action("STOCK_MARK_START", "Started empty bottle marking interface",
+                            STOCK_TAKING_SHEET, details=f"Items to review: {len(scanned_items)}")
+
+    root = tk.Tk()
+    root.title("Mark Empty Bottles")
+    root.geometry("900x600")
+
+    main_frame = tk.Frame(root)
+    main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+
+    instructions = tk.Label(main_frame,
+                            text="Select empty bottles to update their remaining quantity to 0",
+                            font=('Arial', 12, 'bold'), fg='blue')
+    instructions.pack(pady=(0, 10))
+
+    columns = ("Barcode", "Chemical", "Current Qty", "Units", "Status")
+    tree = ttk.Treeview(main_frame, columns=columns, show="headings", height=15)
+
+    for col in columns:
+        tree.heading(col, text=col.replace("_", " ").title())
+
+    tree.column("Barcode", width=120)
+    tree.column("Chemical", width=250)
+    tree.column("Current Qty", width=100)
+    tree.column("Units", width=80)
+    tree.column("Status", width=150)
+
+    scrollbar = ttk.Scrollbar(main_frame, orient=tk.VERTICAL, command=tree.yview)
+    tree.configure(yscrollcommand=scrollbar.set)
+
+    tree_frame = tk.Frame(main_frame)
+    tree_frame.pack(fill=tk.BOTH, expand=True)
+    tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+    scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+    for barcode_id in scanned_items:
+        if barcode_id in inventory:
+            item = inventory[barcode_id]
+            remaining_qty = item.get("remaining_quantity", 0)
+
+            try:
+                qty = float(remaining_qty) if remaining_qty else 0
+                status = "Empty" if qty == 0 else f"{qty} remaining"
+            except (ValueError, TypeError):
+                status = "Unknown quantity"
+
+            tree.insert("", tk.END, values=(
+                barcode_id,
+                item.get("chemical_name", "Unknown")[:40],
+                remaining_qty,
+                item.get("units", "Unknown"),
+                status
+            ))
+        else:
+            tree.insert("", tk.END, values=(
+                barcode_id,
+                "NOT IN INVENTORY",
+                "N/A",
+                "N/A",
+                "Not recorded"
+            ))
+
+    button_frame = tk.Frame(main_frame)
+    button_frame.pack(pady=10)
+
+    empty_bottles = []
+
+    def mark_selected_empty():
+        selected_items = tree.selection()
+        if not selected_items:
+            messagebox.showwarning("No Selection", "Please select items to mark as empty")
+            return
+
+        for item in selected_items:
+            values = tree.item(item, "values")
+            barcode_id = values[0]
+            if barcode_id not in empty_bottles:
+                empty_bottles.append(barcode_id)
+            new_values = list(values)
+            new_values[4] = "MARKED AS EMPTY"
+            tree.item(item, values=new_values)
+
+        messagebox.showinfo("Marked", f"Marked {len(selected_items)} items as empty")
+
+    def finish_selection():
+        if empty_bottles:
+            audit_logger.log_action("STOCK_MARK_END", f"Empty bottle marking completed",
+                                    STOCK_TAKING_SHEET, details=f"Total marked empty: {len(empty_bottles)} bottles")
+        else:
+            audit_logger.log_action("STOCK_MARK_END", f"Empty bottle marking completed - no bottles marked",
+                                    STOCK_TAKING_SHEET, details="User finished without marking any bottles empty")
+        root.destroy()
+
+    tk.Button(button_frame, text="Mark Selected as Empty",
+              command=mark_selected_empty, bg="orange", fg="white").pack(side=tk.LEFT, padx=5)
+    tk.Button(button_frame, text="Finish",
+              command=finish_selection, bg="lightgreen").pack(side=tk.LEFT, padx=5)
+
+    info_frame = tk.Frame(main_frame)
+    info_frame.pack(pady=(10, 0))
+
+    tk.Label(info_frame, text="Instructions:", font=('Arial', 10, 'bold')).pack(anchor='w')
+    tk.Label(info_frame, text="• Select items you want to mark as empty (remaining quantity = 0)",
+             font=('Arial', 9)).pack(anchor='w')
+    tk.Label(info_frame, text="• Use Ctrl+Click to select multiple items",
+             font=('Arial', 9)).pack(anchor='w')
+    tk.Label(info_frame, text="• This will update the InventoryData sheet directly",
+             font=('Arial', 9), fg='red').pack(anchor='w')
+
+    root.wait_window()
+    return empty_bottles
+
+
+def update_empty_bottles_in_inventory(empty_bottles, audit_logger):
+    if not empty_bottles:
+        return True
+
+    audit_logger.log_action("STOCK_UPDATE_START", f"Starting empty bottle inventory updates",
+                            INVENTORY_SHEET, details=f"Bottles to update: {len(empty_bottles)}")
+
+    try:
+        wb = load_workbook(EXCEL_FILE)
+        ws = wb[INVENTORY_SHEET]
+
+        headers = {}
+        for idx, cell in enumerate(ws[1]):
+            if cell.value:
+                headers[cell.value] = idx
+
+        barcode_col_idx = headers.get("Barcode ID")
+        remaining_qty_col_idx = headers.get("Remaining Quantity")
+
+        if barcode_col_idx is None or remaining_qty_col_idx is None:
+            error_msg = "Required columns not found in inventory sheet"
+            audit_logger.log_action("ERROR", error_msg, INVENTORY_SHEET, details=error_msg)
+            messagebox.showerror("Error", error_msg)
+            return False
+
+        updated_count = 0
+        empty_bottles_lower = [barcode.lower() for barcode in empty_bottles]
+
+        for row_num in range(2, ws.max_row + 1):
+            barcode_cell = ws.cell(row=row_num, column=barcode_col_idx + 1)
+            barcode_value = barcode_cell.value
+
+            if barcode_value is not None:
+                barcode_id = str(barcode_value).strip().lower()
+
+                if barcode_id in empty_bottles_lower:
+                    current_qty_cell = ws.cell(row=row_num, column=remaining_qty_col_idx + 1)
+                    current_qty_cell.value = 0
+                    updated_count += 1
+
+        wb.save(EXCEL_FILE)
+        wb.close()
+
+        if updated_count > 0:
+            success_msg = f"Successfully updated {updated_count} bottles to empty (quantity = 0)"
+            audit_logger.log_action("STOCK_UPDATE_SUCCESS", "Empty bottle updates completed",
+                                    INVENTORY_SHEET, details=f"Updated {updated_count} bottles to quantity 0")
+            messagebox.showinfo("Updated Successfully",
+                                f"{success_msg}\n\n" +
+                                f"ONLY Column G (Remaining Quantity) was modified.\n" +
+                                f"No other data was changed.")
+        else:
+            warning_msg = "No matching barcodes found to update"
+            audit_logger.log_action("WARNING", "No bottles updated", INVENTORY_SHEET, details=warning_msg)
+            messagebox.showwarning("No Updates", warning_msg)
+
+        return True
+
+    except Exception as e:
+        audit_logger.log_action("ERROR", f"Failed to update empty bottles", INVENTORY_SHEET, details=str(e))
+        messagebox.showerror("Error", f"Error updating inventory: {str(e)}")
+        return False
+
+
+def generate_reconciliation_report(scanned_items, inventory, empty_bottles, audit_logger):
+    try:
+        audit_logger.log_action("STOCK_REPORT_START", "Starting reconciliation report generation",
+                                STOCK_TAKING_SHEET,
+                                details=f"Scanned: {len(scanned_items)}, Empty marked: {len(empty_bottles)}")
+
+        if not os.path.exists(EXCEL_FILE):
+            error_msg = f"Excel file {EXCEL_FILE} not found"
+            audit_logger.log_action("ERROR", "Excel file not found for report", STOCK_TAKING_SHEET, details=error_msg)
+            messagebox.showerror("Error", error_msg)
+            return False
+
+        wb = load_workbook(EXCEL_FILE)
+
+        if STOCK_TAKING_SHEET in wb.sheetnames:
+            del wb[STOCK_TAKING_SHEET]
+            audit_logger.log_action("STOCK_REPORT_SHEET", "Cleared existing StockTakingResults sheet",
+                                    STOCK_TAKING_SHEET)
+
+        ws = wb.create_sheet(STOCK_TAKING_SHEET)
+        audit_logger.log_action("STOCK_REPORT_SHEET", "Created new StockTakingResults sheet",
+                                STOCK_TAKING_SHEET)
+
+        ws.append([
+            "Stock Taking Date", "Barcode ID", "Chemical Name", "Status",
+            "Current Quantity", "Units", "Manufacturer", "Notes"
+        ])
+
+        stock_date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        stats = {
+            'total_scanned': len(scanned_items),
+            'found_in_inventory': 0,
+            'not_found': 0,
+            'marked_as_empty': len(empty_bottles),
+            'missing_from_scan': 0
+        }
+
+        scanned_set = set(scanned_items)
+
+        for barcode_id in scanned_items:
+            if barcode_id in inventory:
+                stats['found_in_inventory'] += 1
+                item = inventory[barcode_id]
+
+                if barcode_id in empty_bottles:
+                    status = "FOUND - Marked as Empty"
+                    notes = "Quantity updated to 0 in Column G"
+                else:
+                    remaining_quantity = item.get("remaining_quantity", 0)
+                    try:
+                        quantity = float(remaining_quantity) if remaining_quantity else 0
+                        if quantity == 0:
+                            status = "FOUND - Empty bottle"
+                            notes = "Consider marking as empty"
+                        else:
+                            status = "FOUND - Has quantity"
+                            notes = "No action needed"
+                    except (ValueError, TypeError):
+                        status = "FOUND - Unknown quantity"
+                        notes = "Check quantity"
+
+                ws.append([
+                    stock_date,
+                    barcode_id,
+                    item.get("chemical_name", "Unknown"),
+                    status,
+                    item.get("remaining_quantity", "Unknown"),
+                    item.get("units", "Unknown"),
+                    item.get("manufacturer", "Unknown"),
+                    notes
+                ])
+
+            else:
+                stats['not_found'] += 1
+                ws.append([
+                    stock_date,
+                    barcode_id,
+                    "NOT IN INVENTORY DATABASE",
+                    "UNKNOWN ITEM - NOT RECORDED",
+                    "N/A",
+                    "N/A",
+                    "N/A",
+                    "This barcode is not in the inventory system - needs investigation"
+                ])
+
+        for barcode_id, item in inventory.items():
+            if barcode_id not in scanned_set:
+                stats['missing_from_scan'] += 1
+                ws.append([
+                    stock_date,
+                    barcode_id,
+                    item.get("chemical_name", "Unknown"),
+                    "MISSING FROM PHYSICAL STOCK",
+                    item.get("remaining_quantity", "Unknown"),
+                    item.get("units", "Unknown"),
+                    item.get("manufacturer", "Unknown"),
+                    "Item exists in database but was not found during stock taking"
+                ])
+
+        ws.append([])
+        ws.append(["STOCK TAKING SUMMARY"])
+        ws.append(["Total items scanned:", stats['total_scanned']])
+        ws.append(["Found in inventory:", stats['found_in_inventory']])
+        ws.append(["Not found in inventory:", stats['not_found']])
+        ws.append(["Marked as empty:", stats['marked_as_empty']])
+        ws.append(["Missing from scan:", stats['missing_from_scan']])
+
+        if len(inventory) == 0:
+            ws.append([])
+            ws.append(["⚠️ IMPORTANT NOTE:", "Inventory database appears to be empty!"])
+            ws.append(["", "All scanned items show as 'NOT IN INVENTORY'"])
+            ws.append(["", "Please verify the InventoryData sheet has been populated"])
+            audit_logger.log_action("WARNING", "Empty inventory database detected",
+                                    INVENTORY_SHEET, details="All scanned items marked as unknown")
+
+        wb.save(EXCEL_FILE)
+        wb.close()
+
+        audit_logger.log_action("STOCK_REPORT_SUCCESS", "Reconciliation report generated successfully",
+                                STOCK_TAKING_SHEET, details=f"Stats: {stats}")
+
+        if len(inventory) == 0:
+            summary_message = f"""⚠️ INVENTORY DATABASE IS EMPTY!
+
+📊 STOCK TAKING RESULTS:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📦 Total items scanned: {stats['total_scanned']}
+❌ All items show as: NOT IN INVENTORY
+🗑️ Marked as empty: {stats['marked_as_empty']}
+
+🚨 CRITICAL ISSUE:
+Your inventory database (InventoryData sheet) appears to be empty!
+This means all scanned items show as "NOT IN INVENTORY".
+
+📋 TO FIX THIS:
+1. Check the 'InventoryData' sheet in {EXCEL_FILE}
+2. Verify it has actual inventory data (not just headers)
+3. Make sure barcodes are in column A with chemical names in column B
+4. Re-run stock taking after populating the inventory
+
+💾 Report saved to: '{STOCK_TAKING_SHEET}' sheet. Please view this sheet to see the full discrepancies"""
+        else:
+            summary_message = f"""✅ Stock Taking Complete!
+
+📊 SUMMARY REPORT:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📦 Total items scanned: {stats['total_scanned']}
+✅ Found in inventory: {stats['found_in_inventory']}
+❓ Unknown items scanned: {stats['not_found']}
+🗑️ Marked as empty: {stats['marked_as_empty']}
+❌ Missing from scan: {stats['missing_from_scan']}
+
+💾 Report saved to: '{STOCK_TAKING_SHEET}' sheet in {EXCEL_FILE}
+
+🔍 NEXT STEPS:
+• View the StockTakingResults sheet (located in the workbook)
+• Review missing items - are they actually present?
+• Investigate unknown scanned items
+• Empty bottles have been updated to quantity 0
+
+⚠️ Missing items might be:
+- Moved to different location
+- Already used up
+- Mislabeled or damaged barcode"""
+
+        messagebox.showinfo("📋 Stock Taking Results", summary_message)
+        return True
+
+    except Exception as e:
+        audit_logger.log_action("ERROR", f"Failed to generate reconciliation report", STOCK_TAKING_SHEET,
+                                details=str(e))
+        messagebox.showerror("Error", f"Error generating report: {str(e)}")
+        return False
+
+
+def run_stock_process():
+    """Run the stock taking process"""
+    try:
+        print("DEBUG: Starting stock taking process")
+
+        user_email = get_user_email()
+        audit_logger = ExcelAuditLogger(EXCEL_FILE, user_email)
+        audit_logger.log_action("SYSTEM", "Stock taking system started", STOCK_TAKING_SHEET)
+
+        print("DEBUG: Loading inventory data")
+        inventory = load_inventory_data(audit_logger)
+        if inventory is None:
+            print("DEBUG: Failed to load inventory")
+            audit_logger.log_action("ERROR", "Failed to load inventory - system terminated", INVENTORY_SHEET)
+            return
+
+        print(f"DEBUG: Loaded {len(inventory)} inventory items")
+        print("DEBUG: Starting scanning process")
+
+        scanned_items = scan_stock_taking(audit_logger)
+        print(f"DEBUG: Scanning returned: {scanned_items}")
+        print(f"DEBUG: Type of scanned_items: {type(scanned_items)}")
+
+        if not scanned_items:
+            print("DEBUG: No items scanned, exiting")
+            audit_logger.log_action("SYSTEM", "Stock taking cancelled - no items scanned", STOCK_TAKING_SHEET)
+            return
+
+        print(f"DEBUG: Processing {len(scanned_items)} scanned items")
+        print("DEBUG: Starting empty bottle marking")
+
+        empty_bottles = mark_empty_bottles(scanned_items, inventory, audit_logger)
+        print(f"DEBUG: Empty bottles marked: {len(empty_bottles) if empty_bottles else 0}")
+
+        if empty_bottles:
+            if messagebox.askyesno("Update Inventory",
+                                   f"Update {len(empty_bottles)} bottles to empty (quantity = 0) in the inventory?"):
+                print("DEBUG: User confirmed empty bottle updates")
+                audit_logger.log_action("STOCK_UPDATE_CONFIRM", f"User confirmed empty bottle updates",
+                                        INVENTORY_SHEET, details=f"Bottles to update: {len(empty_bottles)}")
+                update_empty_bottles_in_inventory(empty_bottles, audit_logger)
+            else:
+                print("DEBUG: User declined empty bottle updates")
+                audit_logger.log_action("STOCK_UPDATE_DECLINE", f"User declined empty bottle updates",
+                                        INVENTORY_SHEET, details=f"Bottles not updated: {len(empty_bottles)}")
+
+        print("DEBUG: Starting report generation")
+        success = generate_reconciliation_report(scanned_items, inventory, empty_bottles, audit_logger)
+        print(f"DEBUG: Report generation success: {success}")
+
+        if success:
+            print("DEBUG: Stock taking completed successfully")
+            audit_logger.log_action("SYSTEM", "Stock taking system completed successfully",
+                                    STOCK_TAKING_SHEET, details="All operations completed")
+        else:
+            print("DEBUG: Stock taking completed with errors")
+            audit_logger.log_action("SYSTEM", "Stock taking system completed with errors",
+                                    STOCK_TAKING_SHEET, details="Some operations had errors")
+
+    except Exception as e:
+        print(f"DEBUG: Exception in run_stock_process: {e}")
+        import traceback
+        traceback.print_exc()
+        if 'audit_logger' in locals():
+            audit_logger.log_action("ERROR", f"System error in main function", STOCK_TAKING_SHEET, details=str(e))
+        messagebox.showerror("System Error", f"An unexpected error occurred: {str(e)}")
+
+
+# === MAIN MENU SYSTEM ===
+def main():
+    """Main menu system for inventory management"""
+    initialize_excel_file()
+
+    root = tk.Tk()
+    root.withdraw()
+
+    while True:
+        choice = simpledialog.askstring(
+            "Inventory Management System",
+            "INVENTORY MANAGEMENT SYSTEM\n\n" +
+            "Please select an option:\n\n" +
+            "1 - Take/Update Inventory\n" +
+            "2 - Take Stock (Stock Taking)\n" +
+            "3 - Exit\n\n" +
+            "Enter choice (1, 2, or 3):"
+        )
+
+        if not choice:
+            if messagebox.askyesno("Exit", "Exit inventory management system?"):
+                break
+            continue
+
+        choice = choice.strip()
+
+        if choice == '1':
+            try:
+                run_inventory_process()
+            except Exception as e:
+                messagebox.showerror("Error", f"Error in inventory process: {str(e)}")
+
+        elif choice == '2':
+            try:
+                run_stock_process()
+            except Exception as e:
+                messagebox.showerror("Error", f"Error in stock taking process: {str(e)}")
+
+        elif choice == '3':
+            if messagebox.askyesno("Exit", "Exit inventory management system?"):
+                break
+
+        else:
+            messagebox.showwarning("Invalid Choice",
+                                   "Please enter 1 for Inventory, 2 for Stock Taking, or 3 to Exit")
+
+    root.destroy()
+
+
+if __name__ == "__main__":
+    main()
